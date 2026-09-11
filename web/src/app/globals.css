@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f4f2ee;
+  --ink: #2a2521;
+  --ink-soft: #6b6259;
+  --line: #ddd7cd;
+  --surface: #ffffff;
+  --amber: #b5822a;
+  --amber-soft: #f4e6cc;
+  --sage: #5f7a52;
+  --sage-soft: #e3ead9;
+  --slate: #8a8378;
+  --brick: #a2452f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1c1815;
+    --ink: #f3efe8;
+    --ink-soft: #b3a89b;
+    --line: #3a332c;
+    --surface: #241f1a;
+    --amber: #d9a94e;
+    --amber-soft: #3a2e17;
+    --sage: #8fae7c;
+    --sage-soft: #26301f;
+    --slate: #7a7268;
+    --brick: #d97a63;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-surface: var(--surface);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-sage: var(--sage);
+  --color-sage-soft: var(--sage-soft);
+  --color-slate: var(--slate);
+  --color-brick: var(--brick);
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

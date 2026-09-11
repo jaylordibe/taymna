@@ -1,0 +1,30 @@
+# Node
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.log
+npm-debug.log*
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+
+# Rust
+agent/target/
+**/*.rs.bk
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Prisma
+api/prisma/*.db
+api/src/generated/
+
+# Agent local runtime state (dev)
+agent/.taymna-agent/

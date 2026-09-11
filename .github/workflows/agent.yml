@@ -1,0 +1,43 @@
+name: agent
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: agent
+
+jobs:
+  fmt-and-clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test-and-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+      # The pure session/storage/client logic runs identically on every OS;
+      # the platform/{windows,linux,macos}.rs enforcement code is cfg-gated
+      # per target and only actually compiles on its own matrix leg (see
+      # docs/enforcement.md for why those calls aren't unit-testable here).
+      - run: cargo test
+      - run: cargo build
