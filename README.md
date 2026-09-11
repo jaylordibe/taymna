@@ -81,14 +81,14 @@ Each app runs independently against its own dev tooling:
 # `docker run -e POSTGRES_USER=taymna -e POSTGRES_PASSWORD=... -e POSTGRES_DB=taymna -p 5432:5432 postgres:17-alpine`)
 cd api
 cp .env.example .env   # or hand-write one pointing at your local Postgres
-npm install
-npm run db:migrate:dev
-npm run start:dev
+yarn install
+yarn db:migrate:dev
+yarn start:dev
 
 # Web
 cd web
-npm install
-npm run dev
+yarn install
+yarn dev
 
 # Agent
 cd agent
@@ -99,8 +99,8 @@ Test/lint/build commands per app:
 
 | | lint | typecheck | test | build |
 |---|---|---|---|---|
-| `api/` | `npm run lint` | `npm run typecheck` | `npm test` + `npm run test:e2e` | `npm run build` |
-| `web/` | `npm run lint` | `npm run typecheck` | `npm test` | `npm run build` |
+| `api/` | `yarn lint` | `yarn typecheck` | `yarn test` + `yarn test:e2e` | `yarn build` |
+| `web/` | `yarn lint` | `yarn typecheck` | `yarn test` | `yarn build` |
 | `agent/` | `cargo fmt --check` | -- | `cargo test` | `cargo build` |, plus `cargo clippy --all-targets -- -D warnings`
 
 ## Self-hosting

@@ -41,22 +41,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: api/package-lock.json
+          cache: yarn
+          cache-dependency-path: api/yarn.lock
 
-      - run: npm ci
+      - run: corepack enable
 
-      - run: npx prisma migrate deploy
+      - run: yarn install --frozen-lockfile
 
-      - run: npm run lint
+      - run: yarn prisma migrate deploy
 
-      - run: npm run typecheck
+      - run: yarn lint
 
-      - run: npm test
+      - run: yarn typecheck
 
-      - run: npm run test:e2e
+      - run: yarn test
 
-      - run: npm run build
+      - run: yarn test:e2e
+
+      - run: yarn build
 
   web:
     runs-on: ubuntu-latest
@@ -69,15 +71,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache: yarn
+          cache-dependency-path: web/yarn.lock
 
-      - run: npm ci
+      - run: corepack enable
 
-      - run: npm run lint
+      - run: yarn install --frozen-lockfile
 
-      - run: npm run typecheck
+      - run: yarn lint
 
-      - run: npm test
+      - run: yarn typecheck
 
-      - run: npm run build
+      - run: yarn test
+
+      - run: yarn build

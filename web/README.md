@@ -6,16 +6,16 @@ architecture and self-hosting -- this file only covers commands local to
 this package.
 
 ```bash
-npm install
+yarn install
 cp .env.local.example .env.local   # or just set NEXT_PUBLIC_API_URL
-npm run dev
+yarn dev
 ```
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Dev server |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Component tests (Vitest + Testing Library) |
-| `npm run build` | Production build |
-| `npm run start` | Serve the production build |
+| `yarn dev` | Dev server |
+| `yarn lint` | ESLint |
+| `yarn typecheck` | `tsc --noEmit` |
+| `yarn test` | Component tests (Vitest + Testing Library) |
+| `yarn build` | Production build |
+| `yarn start` | Serve the production build |

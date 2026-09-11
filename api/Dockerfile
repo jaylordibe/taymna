@@ -2,12 +2,13 @@
 
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json .npmrc ./
+RUN corepack enable
+COPY package.json yarn.lock ./
 # --ignore-scripts: this stage's only job is to produce node_modules for the
 # build stage, which runs `prisma generate` explicitly after the full
 # source (including prisma/schema.prisma) is present -- running the
 # package's postinstall here would fail with the schema not found yet.
-RUN npm ci --ignore-scripts
+RUN yarn install --frozen-lockfile --ignore-scripts
 
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
@@ -23,17 +24,18 @@ COPY . .
 # used to connect -- the real value comes from the container's environment
 # at runtime (docker-compose.yml), not from anything baked into this image.
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
-RUN npx prisma generate
-RUN npm run build
+RUN yarn prisma generate
+RUN yarn build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+RUN corepack enable
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json .npmrc ./
+COPY package.json yarn.lock ./
 # --ignore-scripts: the already-generated client is copied in below: no
 # need (and no schema present yet at this point) to regenerate it here.
-RUN npm ci --omit=dev --ignore-scripts
+RUN yarn install --frozen-lockfile --production --ignore-scripts
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src/generated ./src/generated
 COPY --from=build /app/prisma ./prisma
@@ -44,4 +46,4 @@ EXPOSE 3000
 # Migrations run on every boot -- safe/idempotent (`migrate deploy` only
 # applies pending migrations) and is how a self-hosted single-instance
 # deployment picks up schema changes on upgrade without a separate step.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "yarn prisma migrate deploy && node dist/main.js"]

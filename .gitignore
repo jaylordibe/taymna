@@ -7,6 +7,7 @@ out/
 coverage/
 *.log
 npm-debug.log*
+yarn-error.log*
 *.tsbuildinfo
 .env
 .env.local

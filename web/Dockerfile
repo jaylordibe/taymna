@@ -2,11 +2,13 @@
 
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
 
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
+RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so
@@ -15,11 +17,12 @@ COPY . .
 # Changing it requires rebuilding this image. See docs/self-hosting.md.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-RUN npm run build
+RUN yarn build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+RUN corepack enable
 COPY --from=build /app/public ./public
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/node_modules ./node_modules
@@ -27,4 +30,4 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts
 
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+CMD ["yarn", "start"]
