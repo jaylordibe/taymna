@@ -51,11 +51,9 @@ locked and stays locked.
 - **Small on purpose** — one domain concept (*Machine → timed Session*),
   three services, Docker Compose. No Redis, no queues, no plugin system.
 
-<!--
-Screenshot: drop a dashboard capture at docs/images/dashboard.png and
-uncomment:
-<p align="center"><img src="docs/images/dashboard.png" alt="Taymna dashboard" width="720"></p>
--->
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="The Taymna dashboard on a phone: three Windows machines, two with running sessions and live countdowns" width="360">
+</p>
 
 ## Quick start
 
