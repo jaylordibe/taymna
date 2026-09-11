@@ -121,7 +121,7 @@ plainly.
 
 | OS | Enforcement mechanism | Status |
 |---|---|---|
-| Windows | Service (LocalSystem) locks the active console session via `WTSQueryUserToken` + `CreateProcessAsUserW` | Implemented against documented Win32 APIs; not device-verified (no Windows host in development) |
+| Windows | Service (LocalSystem) locks the active console session via `WTSQueryUserToken` + `CreateProcessAsUserW` | **Device-verified** on Windows 11 (2026-09-11): locks with no session, re-locks within ~2s, unlocks on session start, locks at expiry |
 | Linux | systemd service; `loginctl lock-sessions` via systemd-logind | Implemented and exercised live (error/retry and start/stop behavior confirmed end-to-end); real lock call not exercised against a live desktop session in development |
 | macOS | launchd daemon; simulates the OS lock shortcut via System Events (requires Accessibility permission, granted once during install) | Implemented against documented APIs; not device-verified (no macOS host in development) |
 

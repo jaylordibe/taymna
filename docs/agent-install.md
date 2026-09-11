@@ -1,33 +1,157 @@
 # Agent installation
 
-The agent is a single binary (`taymna-agent`). Development never requires
-installing a system service:
+The agent is a single binary. Installing it on a machine you want to
+control is: download the prebuilt file for that OS, put it in place, register
+it as a system service, enroll it once with a token from the dashboard, and
+start it. No installer/updater exists in V1.
 
-```bash
-cd agent
-cargo run -- enroll --server https://taymna.example.com --token <token>
-cargo run          # or: cargo run -- run
+## 1. Get the binary
+
+Download the file for the target OS from the
+[Releases page](https://github.com/jaylordibe/taymna/releases) (built by
+`.github/workflows/release.yml` on every version tag). The files are named:
+
+| OS | Release file | Installed as |
+|---|---|---|
+| Windows (x86-64) | `taymna-agent-windows-x86_64.exe` | `C:\Program Files\Taymna\taymna-agent.exe` |
+| Linux (x86-64) | `taymna-agent-linux-x86_64` | `/usr/local/bin/taymna-agent` |
+| macOS (Apple Silicon) | `taymna-agent-macos-arm64` | `/usr/local/bin/taymna-agent` |
+
+The steps below assume the download landed in your Downloads folder; adjust
+the source path if not. Every command uses absolute paths, so it does not
+matter which directory your shell is in.
+
+Building it yourself instead (needs a Rust toolchain): `cargo build
+--release` in `agent/` produces `agent/target/release/taymna-agent[.exe]`.
+
+## 2. Get an enrollment token
+
+In the dashboard, add the machine (or click **Installation command** on an
+existing one). The token is single-use and expires in 15 minutes, so do this
+right before the enroll step. The `--server` value is the URL your agents
+use to reach the API (e.g. `https://taymna.example.com`, or a tunnel URL) --
+not `localhost`, unless the server really is on the same machine.
+
+## Windows
+
+Open PowerShell **as Administrator** (Start -> type "PowerShell" ->
+right-click -> Run as administrator). The window title must say
+"Administrator: Windows PowerShell"; a normal shell fails the service
+commands with "Access is denied" (error 5). Paste one line at a time.
+
+**Install the binary.** This creates the folder and renames the download:
+
+```powershell
+mkdir "C:\Program Files\Taymna" -Force
+Copy-Item "$env:USERPROFILE\Downloads\taymna-agent-windows-x86_64.exe" "C:\Program Files\Taymna\taymna-agent.exe" -Force
 ```
 
-`cargo run` (no args) is equivalent to `cargo run -- run` and uses a
-user-writable state directory by default (resolved via the `directories`
-crate, or overridden with `TAYMNA_STATE_DIR`).
+**Check it runs.** Must print the version and `exit code: 0`:
 
-For installing on a machine you're controlling, you don't need a clone or a
-Rust toolchain there: grab the prebuilt binary for that OS from the
-[Releases page](https://github.com/jaylordibe/taymna/releases) (built by
-`.github/workflows/release.yml` on every version tag). Building it yourself
-instead: `cargo build --release` produces `target/release/taymna-agent`.
+```powershell
+& "C:\Program Files\Taymna\taymna-agent.exe" --version; "exit code: $LASTEXITCODE"
+```
 
-For always-on use, install it as the OS's native service so it starts on
-boot and restarts if it crashes. No installer/updater beyond these
-definitions exists in V1 -- copy the binary and unit/plist file, then use
-the OS's own service manager.
+**Register the service** (LocalSystem, required both for the lock technique
+in [enforcement.md](enforcement.md) and for Windows to manage it at all).
+The third line prints the config; `BINARY_PATH_NAME` must show the exe path
+in quotes:
+
+```powershell
+New-Service -Name TaymnaAgent -BinaryPathName '"C:\Program Files\Taymna\taymna-agent.exe" run' -StartupType Automatic
+sc.exe failure TaymnaAgent reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc.exe qc TaymnaAgent
+```
+
+**Give the service its state directory.** This is set on the service's own
+registry key, which Windows applies the next time the service starts:
+
+```powershell
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" -Name "Environment" -PropertyType MultiString -Value @("TAYMNA_STATE_DIR=C:\ProgramData\Taymna") -Force
+```
+
+**Enroll**, substituting your server URL and the token from step 2. Must
+print `Enrolled successfully as machine ...`:
+
+```powershell
+$env:TAYMNA_STATE_DIR = "C:\ProgramData\Taymna"; & "C:\Program Files\Taymna\taymna-agent.exe" enroll --server https://taymna.example.com --token <token>
+```
+
+**Start it and verify:**
+
+```powershell
+sc.exe start TaymnaAgent
+sc.exe query TaymnaAgent
+Get-Content "C:\ProgramData\Taymna\agent.log" -Tail 20
+```
+
+`STATE` should be `4 RUNNING`, the log should end with `connected to Taymna
+server`, and the machine shows **Online** on the dashboard. With no active
+session the screen locks immediately and re-locks within ~2 seconds of
+signing in; starting a session from the dashboard makes it usable.
+
+### Why the Windows steps look the way they do
+
+- **Quoted path inside the service config.** The exe lives under `Program
+  Files` (a space). `New-Service` with the inner `"..."` stores it quoted.
+  The tempting `sc.exe create ... binPath= "C:\Program Files\...\taymna-agent.exe run"`
+  stores it *unquoted* (the classic "unquoted service path" pitfall): the
+  process's own command line then splits on the space and the CLI parser
+  would reject `Files\Taymna\...` as an unknown subcommand and exit before
+  reaching the Service Control Manager. To fix an already-registered
+  service in place:
+  `Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" -Name ImagePath -Value '"C:\Program Files\Taymna\taymna-agent.exe" run'`
+- **`&` before the quoted exe path.** PowerShell treats a quoted path as a
+  string value, not a command, unless invoked with the call operator.
+- **State directory via the registry, not a machine variable.** The service
+  runs as LocalSystem; your interactive `enroll` runs as your admin account.
+  Different accounts, different profile folders -- `TAYMNA_STATE_DIR` is
+  what makes them agree. Setting it with
+  `[Environment]::SetEnvironmentVariable(..., "Machine")` does not reach a
+  service until reboot (services inherit `services.exe`'s boot-time
+  environment); the per-service `Environment` registry value is applied
+  immediately. The `$env:TAYMNA_STATE_DIR = ...;` prefix on the enroll line
+  applies it to that one interactive command.
+- **Self-contained binary.** The C runtime is statically linked
+  (`agent/.cargo/config.toml`), so no Visual C++ Redistributable is needed.
+- **Logs.** A Windows service has no console, so on this platform the agent
+  writes `agent.log` in the state directory instead of stdout, plus
+  `panic.log` / `service_dispatch.log` if it fails during startup.
+
+### Windows troubleshooting
+
+- `sc.exe start` fails with **1053** ("did not respond in a timely
+  fashion") and nothing else: the process died before it could talk to
+  Windows. Run the `--version` check. Exit code `-1073741515`
+  (STATUS_DLL_NOT_FOUND) with no output means a build older than v0.1.3;
+  `-1073741701` means a wrong-architecture binary. If `--version` is fine,
+  check `sc.exe qc` for the quoted path, then the log files above.
+- Service runs but the machine never shows online: read
+  `C:\ProgramData\Taymna\agent.log`. "not enrolled yet" means the enroll
+  step wrote somewhere else -- re-run it exactly as shown, with the
+  `$env:TAYMNA_STATE_DIR` prefix.
+- **The server URL changed** (new tunnel address, moved to a VPS): get a
+  fresh token, then `sc.exe stop TaymnaAgent`, run the enroll line with the
+  new `--server`, `sc.exe start TaymnaAgent`. The agent reads the URL from
+  its saved state at startup, so a restart is required.
 
 ## Linux (systemd)
 
+Run these as a user with `sudo`. Root is required for `loginctl
+lock-sessions` to affect other users' sessions -- see
+[enforcement.md](enforcement.md).
+
+**Install the binary:**
+
+```bash
+sudo install -m 755 ~/Downloads/taymna-agent-linux-x86_64 /usr/local/bin/taymna-agent
+taymna-agent --version
+```
+
+**Create the unit file** at `/etc/systemd/system/taymna-agent.service`
+(e.g. `sudo nano /etc/systemd/system/taymna-agent.service`):
+
 ```ini
-# /etc/systemd/system/taymna-agent.service
 [Unit]
 Description=Taymna agent
 After=network-online.target
@@ -46,101 +170,43 @@ User=root
 WantedBy=multi-user.target
 ```
 
-`StateDirectory=` has systemd create `/var/lib/taymna-agent` with the
-correct ownership/permissions before the service starts. Root is required
-for `loginctl lock-sessions` to affect other users' sessions -- see
-[enforcement.md](enforcement.md).
+`StateDirectory=` has systemd create `/var/lib/taymna-agent` with the right
+ownership before the service starts.
+
+**Enroll and start.** The enroll runs as root with the same state directory
+the service uses, so both see the same credentials:
 
 ```bash
-sudo cp taymna-agent /usr/local/bin/
-sudo cp taymna-agent.service /etc/systemd/system/
-sudo taymna-agent enroll --server https://taymna.example.com --token <token>  # as root, so it writes to /var/lib/taymna-agent
+sudo mkdir -p /var/lib/taymna-agent
+sudo TAYMNA_STATE_DIR=/var/lib/taymna-agent taymna-agent enroll --server https://taymna.example.com --token <token>
+sudo systemctl daemon-reload
 sudo systemctl enable --now taymna-agent
+systemctl status taymna-agent
 ```
 
-## Windows (Windows Service)
-
-Run every command below in an **elevated** PowerShell ("Run as
-administrator" -- the window title must say "Administrator: Windows
-PowerShell"). A non-elevated shell fails `sc.exe create`/`start` with
-"Access is denied" (error 5).
-
-The Windows binary is self-contained (the C runtime is statically linked,
-see `agent/.cargo/config.toml`), so no Visual C++ Redistributable is needed.
-Sanity-check any freshly copied binary before registering it:
-
-```powershell
-& "C:\Program Files\Taymna\taymna-agent.exe" --version; "exit code: $LASTEXITCODE"
-```
-
-It must print the version and `exit code: 0`. An exit code of `-1073741515`
-(STATUS_DLL_NOT_FOUND) with no output means a build older than v0.1.3, which
-still depended on VCRUNTIME140.dll -- as a service that failure is completely
-silent and shows up only as `sc.exe start` failing with error 1053.
-
-Register the binary as a service (LocalSystem, required for both the
-`WTSQueryUserToken`/`CreateProcessAsUserW` technique in
-[enforcement.md](enforcement.md) and for `sc.exe`/SCM to manage it at all):
-
-```powershell
-mkdir "C:\Program Files\Taymna" -Force
-Copy-Item ".\taymna-agent.exe" "C:\Program Files\Taymna\taymna-agent.exe"
-
-New-Service -Name TaymnaAgent -BinaryPathName '"C:\Program Files\Taymna\taymna-agent.exe" run' -StartupType Automatic
-sc.exe failure TaymnaAgent reset= 86400 actions= restart/5000/restart/5000/restart/5000
-sc.exe qc TaymnaAgent
-```
-
-The exe path **must be quoted inside** the service's binary path (note the
-inner `"..."` in the `New-Service` line) because it contains a space. The
-tempting `sc.exe create ... binPath= "C:\Program Files\...\taymna-agent.exe run"`
-stores it *unquoted*: SCM still finds and launches the exe, but the process
-then sees its own command line as `C:\Program`, `Files\Taymna\taymna-agent.exe`,
-`run` -- the CLI parser rejects `Files\Taymna\...` as an unknown subcommand and
-exits before ever reaching the Service Control Manager handshake. The only
-symptom is a bare "1053: did not respond in a timely fashion" on start, with
-no process and no log file. Confirm with `sc.exe qc`: `BINARY_PATH_NAME` must
-show the path in quotes. To fix an already-registered service in place:
-
-```powershell
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" -Name ImagePath -Value '"C:\Program Files\Taymna\taymna-agent.exe" run'
-```
-
-The service (LocalSystem) and an interactive `enroll` run (your own admin
-account) are different Windows accounts with different profile
-directories, so they need `TAYMNA_STATE_DIR` to agree on a shared location
--- **don't** set it with `[Environment]::SetEnvironmentVariable(...,
-"Machine")`: that only updates the registry, and a Windows service inherits
-its environment from `services.exe`'s own process environment, captured at
-boot -- it will *not* see a machine variable set after boot without a
-reboot. Set it directly on the service's own registry key instead, which
-SCM does apply immediately, no reboot needed:
-
-```powershell
-New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" `
-  -Name "Environment" -PropertyType MultiString `
-  -Value @("TAYMNA_STATE_DIR=C:\ProgramData\Taymna") -Force
-
-$env:TAYMNA_STATE_DIR = "C:\ProgramData\Taymna"   # for this enroll command only
-# The `&` (call operator) is required: PowerShell treats a *quoted* path as
-# a plain string value, not something to execute, unless told to with `&`.
-# (An unquoted/`.\`-relative path like `.\taymna-agent.exe` doesn't need it
-# -- only this case, where the path must be quoted because it contains a
-# space ("Program Files").)
-& "C:\Program Files\Taymna\taymna-agent.exe" enroll --server https://taymna.example.com --token <token>
-
-sc.exe start TaymnaAgent
-```
-
-A Windows service has no attached console, so on this platform only, the
-agent logs to `<TAYMNA_STATE_DIR>\agent.log` (e.g.
-`C:\ProgramData\Taymna\agent.log`) instead of stdout -- check there first
-if the service starts but the machine never shows as online.
+Logs: `journalctl -u taymna-agent -f`. If the server URL changes: fresh
+token, `sudo systemctl stop taymna-agent`, re-run the enroll line, `sudo
+systemctl start taymna-agent`.
 
 ## macOS (launchd)
 
+The released binary is for Apple Silicon. Run these in Terminal as an
+administrator user.
+
+**Install the binary:**
+
+```bash
+sudo install -m 755 ~/Downloads/taymna-agent-macos-arm64 /usr/local/bin/taymna-agent
+taymna-agent --version
+```
+
+macOS may quarantine a downloaded binary; if `--version` is blocked, run
+`sudo xattr -d com.apple.quarantine /usr/local/bin/taymna-agent` and retry.
+
+**Create the launchd plist** at `/Library/LaunchDaemons/dev.taymna.agent.plist`
+(e.g. `sudo nano /Library/LaunchDaemons/dev.taymna.agent.plist`):
+
 ```xml
-<!-- /Library/LaunchDaemons/dev.taymna.agent.plist -->
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -162,16 +228,35 @@ if the service starts but the machine never shows as online.
 </plist>
 ```
 
+**Enroll and start:**
+
 ```bash
-sudo cp taymna-agent /usr/local/bin/
 sudo mkdir -p /var/lib/taymna-agent
 sudo TAYMNA_STATE_DIR=/var/lib/taymna-agent taymna-agent enroll --server https://taymna.example.com --token <token>
-sudo cp dev.taymna.agent.plist /Library/LaunchDaemons/
+sudo chown root:wheel /Library/LaunchDaemons/dev.taymna.agent.plist
 sudo launchctl bootstrap system /Library/LaunchDaemons/dev.taymna.agent.plist
+sudo launchctl print system/dev.taymna.agent | head
 ```
 
-**Required manual step:** grant the daemon (or its running process)
-Accessibility permission in System Settings -> Privacy & Security ->
-Accessibility -- macOS will not let this be granted silently, and locking
-will fail (logged, retried) until it's done. See
-[enforcement.md](enforcement.md) for why this is needed.
+**Required manual step:** grant the daemon Accessibility permission in
+System Settings -> Privacy & Security -> Accessibility. macOS will not let
+this be granted silently, and locking fails (logged, retried) until it's
+done -- see [enforcement.md](enforcement.md).
+
+If the server URL changes: fresh token, `sudo launchctl bootout
+system/dev.taymna.agent`, re-run the enroll line, then the `bootstrap`
+command again.
+
+## Development
+
+None of the above is needed to work on the agent itself:
+
+```bash
+cd agent
+cargo run -- enroll --server https://taymna.example.com --token <token>
+cargo run          # or: cargo run -- run
+```
+
+`cargo run` (no args) is equivalent to `cargo run -- run` and uses a
+user-writable state directory by default (resolved via the `directories`
+crate, or overridden with `TAYMNA_STATE_DIR`).

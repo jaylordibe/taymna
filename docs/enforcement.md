@@ -66,24 +66,39 @@ tick.
   unimplemented -- it needs a way to know which OS account corresponds to
   "the" user of a shared machine, which the current enrollment flow doesn't
   capture.
-- `agent/src/platform/windows.rs` was written against the documented Win32
-  APIs; it builds cleanly (verified by cross-compiling to
-  `x86_64-pc-windows-gnu`, and on the `windows-latest` CI runner) but the
-  lock call itself has not been confirmed against a real interactive
-  session. Treat the FFI calls as reviewed, not yet field-verified.
-- Separately, `sc.exe start` initially failed with error 1053 ("service did
-  not respond in a timely fashion") on real hardware during first-time
-  testing: the agent had never implemented the Service Control Manager's
-  handshake (`StartServiceCtrlDispatcherW`), so SCM waited for a
-  "running" status the process never sent. Fixed in
-  `agent/src/main.rs`'s `windows_service_support` module via the
-  `windows-service` crate -- when launched by SCM, the process now
-  registers a control handler, reports `SERVICE_RUNNING`, and reports
-  `SERVICE_STOPPED` on a clean Stop/Shutdown request; when launched any
-  other way (interactively, `cargo run`, double-click) it falls back to
-  running in the foreground exactly as before. The service now starts
-  successfully; whether `disable_usage()` visibly locks the screen once
-  running as that service is the remaining real-hardware check.
+**Device-verified** on a real Windows 11 machine (2026-09-11, agent v0.1.3
+installed as a LocalSystem service, server reached over the internet via an
+ngrok tunnel): with no session the console locks and re-locks within ~2s of
+signing back in; starting a session makes the machine usable immediately;
+at expiry it locks again. That first real-hardware run found three genuine
+gaps, all fixed -- none of them in the lock mechanism itself, all in getting
+the process to run as a service at all, and each surfacing only as a bare
+`sc.exe start` error 1053 with no other output:
+
+- **No Service Control Manager handshake.** The agent had never called
+  `StartServiceCtrlDispatcherW`, so SCM waited for a `SERVICE_RUNNING`
+  status that never came. Fixed in `agent/src/main.rs`'s
+  `windows_service_support` module (via the `windows-service` crate): when
+  launched by SCM it registers a control handler, reports `SERVICE_RUNNING`,
+  and reports `SERVICE_STOPPED` on Stop/Shutdown; launched any other way
+  (interactively, `cargo run`, double-click) it runs in the foreground as
+  before.
+- **A dependency on `VCRUNTIME140.dll`.** The MSVC toolchain links the C
+  runtime dynamically by default, and the Visual C++ Redistributable was not
+  on the target machine, so the exe failed to load at all (exit code
+  `-1073741515`, STATUS_DLL_NOT_FOUND) in every context -- it just fails
+  *silently* as a service. Fixed by statically linking the runtime
+  (`agent/.cargo/config.toml`); the binary now imports only DLLs that ship
+  with Windows.
+- **Environment variables don't reach a service.** `TAYMNA_STATE_DIR` set
+  as a machine-wide variable is invisible to a service until reboot, because
+  services inherit `services.exe`'s boot-time environment. The install
+  procedure now sets it on the service's own registry key instead. A
+  Windows service also has no console, so on this platform only the agent
+  logs to `<TAYMNA_STATE_DIR>\agent.log` (plus `panic.log` /
+  `service_dispatch.log` for failures during startup).
+
+See [agent-install.md](agent-install.md) for the resulting procedure.
 
 ## Linux
 
