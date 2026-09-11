@@ -254,18 +254,32 @@ async fn enroll(store: &Store, server: String, token: String) -> anyhow::Result<
         machine_secret: String,
     }
 
+    use anyhow::Context as _;
+
     let url = format!("{}/machines/enroll", server.trim_end_matches('/'));
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
         .json(&serde_json::json!({ "token": token }))
         .send()
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "could not reach {server} -- is the API running and reachable from this machine?"
+            )
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("enrollment failed ({status}): {body}");
+        // The API answers with a JSON envelope whose `message` is the
+        // human-readable reason (e.g. "Enrollment token is invalid, used, or
+        // expired"); surface that alone rather than the whole envelope.
+        let reason = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("message").and_then(|m| m.as_str().map(str::to_owned)))
+            .unwrap_or(body);
+        anyhow::bail!("enrollment rejected by {server} ({status}): {reason}");
     }
 
     let parsed: EnrollResponse = response.json().await?;

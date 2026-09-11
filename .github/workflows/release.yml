@@ -19,28 +19,40 @@ jobs:
     strategy:
       matrix:
         include:
+          # Linux is built as a fully static musl binary so it runs on any
+          # x86-64 distribution. A glibc build made on ubuntu-latest requires
+          # that runner's glibc (2.39 on 24.04) and fails to start on Debian
+          # 12 / Ubuntu 22.04 and older -- the same class of problem as the
+          # Windows CRT dependency fixed in agent/.cargo/config.toml.
           - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             asset_name: taymna-agent-linux-x86_64
             binary_name: taymna-agent
           - os: windows-latest
+            target: x86_64-pc-windows-msvc
             asset_name: taymna-agent-windows-x86_64.exe
             binary_name: taymna-agent.exe
           - os: macos-latest
+            target: aarch64-apple-darwin
             asset_name: taymna-agent-macos-arm64
             binary_name: taymna-agent
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
-      - run: cargo build --release
+      - run: cargo build --release --target ${{ matrix.target }}
       - name: Package binary
         shell: bash
         run: |
           mkdir -p dist
-          cp "target/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}

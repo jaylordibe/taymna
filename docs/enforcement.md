@@ -130,6 +130,16 @@ tick, on any desktop environment that implements logind's lock contract.
   ended -- confirming the *decision logic* end-to-end. The actual OS-level
   lock call itself was not exercised against a real logind/desktop session
   in this environment.
+- The Linux release binary is built as a fully static musl executable
+  (`.github/workflows/release.yml`). Testing `install/install.sh` in a
+  Debian 12 container turned up the reason: the earlier glibc build, made on
+  the Ubuntu 24.04 runner, required glibc 2.39 and refused to start on
+  anything older (`version 'GLIBC_2.39' not found`) -- the Linux twin of the
+  Windows CRT dependency above. `install.sh` itself was verified in an
+  Ubuntu 24.04 container against a live API: real download URL, install,
+  version check, unit file, enrollment (server-confirmed), upgrade-keeps-
+  enrollment, and `--reenroll`; the `systemctl` calls were captured by a
+  shim rather than run on a real systemd host.
 
 ## macOS
 
