@@ -126,6 +126,11 @@ Test/lint/build commands per app:
 variables (and the two that trip people up), first startup, enrolling a
 machine, starting/extending/ending sessions, stopping and upgrading.
 
+[docs/deploy-ubuntu-vps.md](docs/deploy-ubuntu-vps.md) -- the full
+walkthrough for a public deployment on an Ubuntu VPS with TLS, including a
+server that already hosts other apps (free port selection, adding to an
+existing Caddy or nginx).
+
 ## Security model
 
 [docs/security.md](docs/security.md) -- operator auth, machine credentials,

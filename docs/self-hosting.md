@@ -117,14 +117,21 @@ full-screen, no browser chrome) over HTTPS, and agents should talk to the
 API over `wss://`. [Caddy](https://caddyserver.com) is the least-effort
 choice because it obtains and renews certificates itself.
 
+The step-by-step version of this, from a blank Ubuntu server (firewall,
+Docker, swap, Caddy, backups, troubleshooting), is
+[deploy-ubuntu-vps.md](deploy-ubuntu-vps.md). The essentials:
+
 1. DNS: point `taymna.example.com` and `api.taymna.example.com` (A/AAAA
-   records) at the VPS. Open ports 80 and 443 in its firewall; 3000 and
-   3001 should *not* be reachable from the internet (either firewall them,
-   or change the `ports:` lines in `docker-compose.yml` to
-   `"127.0.0.1:3000:3000"` / `"127.0.0.1:3001:3000"` so they bind to
-   localhost only).
+   records) at the VPS. Open ports 80 and 443 in its firewall. The api/web
+   host ports should *not* be reachable from the internet -- set
+   `BIND_ADDRESS=127.0.0.1` in `.env` so they're published on localhost
+   only -- and on a server that already runs other apps, move them off the
+   default 3000/3001 with `API_PORT`/`WEB_PORT`.
 2. `.env` on the VPS:
    ```
+   BIND_ADDRESS=127.0.0.1
+   API_PORT=48100
+   WEB_PORT=48101
    WEB_ORIGIN=https://taymna.example.com
    NEXT_PUBLIC_API_URL=https://api.taymna.example.com
    NEXT_PUBLIC_AGENT_SERVER_URL=https://api.taymna.example.com
@@ -134,13 +141,14 @@ choice because it obtains and renews certificates itself.
 3. Install Caddy on the VPS and use this `/etc/caddy/Caddyfile`:
    ```
    taymna.example.com {
-       reverse_proxy 127.0.0.1:3001
+       reverse_proxy 127.0.0.1:48101
    }
 
    api.taymna.example.com {
-       reverse_proxy 127.0.0.1:3000
+       reverse_proxy 127.0.0.1:48100
    }
    ```
+   (the two ports being whatever you set `WEB_PORT`/`API_PORT` to), then
    `systemctl reload caddy`. Caddy provisions Let's Encrypt certificates on
    first request and proxies WebSockets without extra configuration.
 4. Sign in at `https://taymna.example.com`. On a phone, "Add to Home
