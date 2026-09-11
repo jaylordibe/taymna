@@ -93,7 +93,12 @@ New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" `
   -Value @("TAYMNA_STATE_DIR=C:\ProgramData\Taymna") -Force
 
 $env:TAYMNA_STATE_DIR = "C:\ProgramData\Taymna"   # for this enroll command only
-"C:\Program Files\Taymna\taymna-agent.exe" enroll --server https://taymna.example.com --token <token>
+# The `&` (call operator) is required: PowerShell treats a *quoted* path as
+# a plain string value, not something to execute, unless told to with `&`.
+# (An unquoted/`.\`-relative path like `.\taymna-agent.exe` doesn't need it
+# -- only this case, where the path must be quoted because it contains a
+# space ("Program Files").)
+& "C:\Program Files\Taymna\taymna-agent.exe" enroll --server https://taymna.example.com --token <token>
 
 sc.exe start TaymnaAgent
 ```

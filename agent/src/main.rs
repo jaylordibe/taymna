@@ -62,8 +62,16 @@ fn main() -> anyhow::Result<()> {
                 // branch: the service path needs a file writer (no console
                 // is attached to a service), which windows_service_support
                 // sets up itself once it's certain that's the path taken.
-                if windows_service_support::try_run_as_service().is_ok() {
-                    return Ok(());
+                match windows_service_support::try_run_as_service() {
+                    Ok(()) => return Ok(()),
+                    // This is the *expected* path for an interactive run
+                    // (cargo run, double-click) -- but if it's unexpectedly
+                    // hit for a real `sc.exe start`, this is exactly why
+                    // SCM sees nothing and times out ("waiting for the
+                    // service to connect"), so it's worth a permanent
+                    // record of *why* the handshake never happened rather
+                    // than silently falling through.
+                    Err(err) => windows_service_support::log_dispatch_failure(&err),
                 }
             }
             init_stdout_tracing();
@@ -107,15 +115,52 @@ mod windows_service_support {
         service_dispatcher::start(SERVICE_NAME, ffi_service_main)
     }
 
+    /// Independent of tracing (nothing is initialized yet at the call site
+    /// in main()) -- a raw, best-effort record of why the SCM handshake
+    /// itself never happened, for the one case that actually matters: a
+    /// real `sc.exe start` where this shouldn't have failed at all.
+    pub fn log_dispatch_failure(err: &windows_service::Error) {
+        let dir = crate::storage::default_state_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("service_dispatch.log"))
+        {
+            use std::io::Write;
+            let _ = writeln!(
+                file,
+                "{} -- did not connect to the Service Control Manager: {err}",
+                chrono::Utc::now()
+            );
+        }
+    }
+
+    /// Writes any panic, from anywhere in the process, to panic.log -- set
+    /// up before anything else in run_service() so that even a panic during
+    /// early setup (before tracing itself is ready) leaves a real trace on
+    /// disk instead of a bare, undiagnosable SCM timeout. Independent of
+    /// the tracing subscriber on purpose: this must not depend on the thing
+    /// it exists to catch failures in.
+    fn install_panic_log(dir: &std::path::Path) {
+        let path = dir.join("panic.log");
+        std::panic::set_hook(Box::new(move |info| {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let _ = writeln!(file, "{} -- {info}", chrono::Utc::now());
+            }
+        }));
+    }
+
     /// Same resolution `Store` uses (TAYMNA_STATE_DIR, or the OS-appropriate
     /// data dir) so the log file lands next to state.json -- one place to
     /// look, not two.
-    fn init_file_tracing() {
-        let dir = crate::storage::default_state_dir();
-        if std::fs::create_dir_all(&dir).is_err() {
-            return; // nowhere to log to; better to keep running than panic
-        }
-        let file_appender = tracing_appender::rolling::never(&dir, "agent.log");
+    fn init_file_tracing(dir: &std::path::Path) {
+        let file_appender = tracing_appender::rolling::never(dir, "agent.log");
         // A logging setup failure shouldn't take the whole service down --
         // the agent's actual job (enforcing the session) doesn't depend on
         // it, so this is intentionally swallowed rather than `?`/unwrap'd.
@@ -138,7 +183,11 @@ mod windows_service_support {
     }
 
     fn run_service() -> windows_service::Result<()> {
-        init_file_tracing();
+        let dir = crate::storage::default_state_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        install_panic_log(&dir);
+        init_file_tracing(&dir);
+        tracing::info!("windows service starting");
 
         let (stop_tx, stop_rx) = oneshot::channel();
         let mut stop_tx = Some(stop_tx);
@@ -159,6 +208,8 @@ mod windows_service_support {
         };
 
         let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
+        tracing::info!("registered service control handler");
+
         status_handle.set_service_status(ServiceStatus {
             service_type: SERVICE_TYPE,
             current_state: ServiceState::Running,
@@ -168,13 +219,13 @@ mod windows_service_support {
             wait_hint: Duration::default(),
             process_id: None,
         })?;
+        tracing::info!("reported SERVICE_RUNNING to the Service Control Manager");
 
-        let result = tokio::runtime::Runtime::new()
-            .expect("failed to start tokio runtime")
-            .block_on(async {
-                let store = Store::new(None)?;
-                run(store, Some(stop_rx)).await
-            });
+        let result: anyhow::Result<()> = (|| {
+            let rt = tokio::runtime::Runtime::new()?;
+            let store = Store::new(None)?;
+            rt.block_on(run(store, Some(stop_rx)))
+        })();
 
         if let Err(err) = &result {
             tracing::error!(?err, "agent loop exited with an error");
