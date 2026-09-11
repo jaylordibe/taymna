@@ -52,6 +52,12 @@ export function useEndSession() {
   });
 }
 
+export function useIssueEnrollmentToken() {
+  return useMutation({
+    mutationFn: (machineId: string) => api.issueEnrollmentToken(machineId),
+  });
+}
+
 export function useCreateMachine() {
   const queryClient = useQueryClient();
   return useMutation({

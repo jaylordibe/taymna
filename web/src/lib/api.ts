@@ -51,6 +51,11 @@ export const api = {
       body: JSON.stringify({ name, platform }),
     }),
 
+  issueEnrollmentToken: (machineId: string) =>
+    request<{ token: string; expiresAt: string }>(`/machines/${machineId}/enrollment-tokens`, {
+      method: "POST",
+    }),
+
   startSession: (machineId: string, durationMinutes: number) =>
     request<SessionState>(`/machines/${machineId}/sessions`, {
       method: "POST",

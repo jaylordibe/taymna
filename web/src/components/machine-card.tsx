@@ -2,10 +2,16 @@
 
 import { useState } from "react";
 import type { Machine } from "@/lib/types";
+import { API_URL } from "@/lib/api";
 import { platformLabel } from "@/lib/platform-label";
 import { lastSeenLabel, remainingLabel, untilLabel } from "@/lib/format-time";
 import { useNow } from "@/lib/use-now";
-import { useEndSession, useExtendSession, useStartSession } from "@/lib/use-machines";
+import {
+  useEndSession,
+  useExtendSession,
+  useIssueEnrollmentToken,
+  useStartSession,
+} from "@/lib/use-machines";
 import { StartSessionControl } from "./start-session-control";
 
 const BAR_COLOR = {
@@ -17,9 +23,12 @@ const BAR_COLOR = {
 export function MachineCard({ machine }: { machine: Machine }) {
   const now = useNow(1000);
   const [busy, setBusy] = useState(false);
+  const [enrollCommand, setEnrollCommand] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const startSession = useStartSession();
   const extendSession = useExtendSession();
   const endSession = useEndSession();
+  const issueEnrollmentToken = useIssueEnrollmentToken();
 
   const session = machine.activeSession;
   const isExpired = session ? new Date(session.expiresAt).getTime() <= now : false;
@@ -56,6 +65,12 @@ export function MachineCard({ machine }: { machine: Machine }) {
     }
   }
 
+  async function handleGetInstallCommand() {
+    setCopied(false);
+    const result = await issueEnrollmentToken.mutateAsync(machine.id);
+    setEnrollCommand(`taymna-agent enroll --server ${API_URL} --token ${result.token}`);
+  }
+
   return (
     <article className="flex overflow-hidden rounded-2xl border border-line bg-surface">
       <div className={`w-1.5 shrink-0 ${BAR_COLOR[state]}`} aria-hidden />
@@ -68,6 +83,46 @@ export function MachineCard({ machine }: { machine: Machine }) {
         <p className="mt-1 text-sm text-ink-soft">
           {machine.online ? "Online" : lastSeenLabel(machine.lastSeenAt, now)}
         </p>
+
+        {enrollCommand ? (
+          <div className="mt-4 rounded-lg border border-line bg-paper p-3">
+            <p className="text-sm text-ink-soft">
+              Run this once on {machine.name}. The token expires in 15 minutes and can only be
+              used once.
+            </p>
+            <div className="mt-2 rounded-lg border border-line bg-surface p-3 font-mono text-xs break-all text-ink">
+              {enrollCommand}
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(enrollCommand);
+                  setCopied(true);
+                }}
+                className="rounded-full bg-amber px-3.5 py-1.5 text-sm font-medium text-ink"
+              >
+                {copied ? "Copied" : "Copy command"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEnrollCommand(null)}
+                className="text-sm text-ink-soft hover:text-ink"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={issueEnrollmentToken.isPending}
+            onClick={handleGetInstallCommand}
+            className="mt-1 text-sm text-ink-soft underline decoration-dotted underline-offset-4 transition-colors hover:text-amber disabled:opacity-50"
+          >
+            {issueEnrollmentToken.isPending ? "Generating…" : "Installation command"}
+          </button>
+        )}
 
         {hasActiveSession && session ? (
           <div className="mt-4">
