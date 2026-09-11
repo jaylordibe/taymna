@@ -192,12 +192,29 @@ extra configuration.
 
 ### nginx (if that's what already fronts the server)
 
-Create `/etc/nginx/sites-available/taymna` -- the `Upgrade`/`Connection`
-headers and `proxy_http_version 1.1` are what let WebSockets through:
+WebSockets need the `Upgrade`/`Connection` headers and
+`proxy_http_version 1.1`. The `Connection` value comes from a `map`, which
+must live in the `http` context and may only be defined **once** in the
+whole nginx config -- so it goes in a shared file, not in each site's file.
+Check whether one of your other sites already defines it:
+
+```bash
+grep -r 'connection_upgrade' /etc/nginx/
+```
+
+If not, create `/etc/nginx/conf.d/websocket-upgrade.conf`:
 
 ```nginx
-map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
 
+Then the two site files (one per hostname, matching a per-app layout) only
+reference the variable. `/etc/nginx/sites-available/taymna-web`:
+
+```nginx
 server {
     listen 80;
     server_name taymna.example.com;
@@ -211,7 +228,11 @@ server {
         proxy_set_header Connection $connection_upgrade;
     }
 }
+```
 
+`/etc/nginx/sites-available/taymna-api`:
+
+```nginx
 server {
     listen 80;
     server_name api.taymna.example.com;
@@ -229,13 +250,93 @@ server {
 ```
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/taymna /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/taymna-web /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/taymna-api /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d taymna.example.com -d api.taymna.example.com
 ```
 
 certbot rewrites both server blocks for HTTPS and installs a renewal timer.
+
+### nginx running in a Docker container
+
+If your nginx is itself a container (common on a server that hosts several
+dockerised apps), `127.0.0.1` inside it is the nginx container, not the
+host -- `proxy_pass http://127.0.0.1:48100` gets a 502. Don't go through
+host ports at all; put nginx on Taymna's Docker network and proxy to the
+containers by name. The compose file pins the project name, so the network
+is always `taymna_default` and the containers are `taymna-api` and
+`taymna-web` (both listening on 3000 inside the network).
+
+Attach your nginx container to that network. Durable version -- in the
+compose file that runs nginx:
+
+```yaml
+services:
+  nginx:
+    # ...existing config...
+    networks:
+      - default
+      - taymna
+networks:
+  taymna:
+    external: true
+    name: taymna_default
+```
+
+(then `docker compose up -d` there; start Taymna first so the network
+exists). Quick version, lost if the nginx container is recreated:
+`docker network connect taymna_default <nginx-container-name>`.
+
+The site files -- adjust the paths to wherever your nginx image mounts its
+config (edits made with `docker exec` disappear on recreate; write them on
+the host side of the volume). One shared file for the `map`,
+`conf.d/00-websocket-upgrade.conf`:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+`conf.d/taymna-web.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name taymna.example.com;
+    # Docker's embedded DNS, re-resolved every 10s: with a plain hostname in
+    # proxy_pass nginx resolves it once at startup and keeps serving 502s
+    # after `docker compose up -d --build` gives taymna-web a new IP.
+    resolver 127.0.0.11 valid=10s;
+    set $upstream http://taymna-web:3000;
+    location / {
+        proxy_pass $upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+```
+
+`conf.d/taymna-api.conf` is identical except `server_name
+api.taymna.example.com;`, `set $upstream http://taymna-api:3000;`, and
+`proxy_read_timeout 1h;` in the `location`.
+
+TLS: `certbot --nginx` on the host doesn't apply to a containerised nginx.
+Use whatever your existing sites use (a certbot/acme companion container,
+certificates mounted into nginx, etc.): give these two server blocks the
+same `listen 443 ssl;` + `ssl_certificate` lines as one of your working
+sites, and add the two hostnames to that certificate setup.
+
+Because nothing reaches Taymna through host ports in this layout, the
+`BIND_ADDRESS`/`API_PORT`/`WEB_PORT` values only need to avoid conflicts;
+`BIND_ADDRESS=127.0.0.1` still keeps them off the public interface.
 
 ### Verify
 

@@ -1,6 +1,12 @@
+# Pinned so the network is always `taymna_default` and containers are
+# `taymna-api` / `taymna-web` regardless of the checkout directory -- other
+# containers (e.g. a reverse proxy) can reference them by these names.
+name: taymna
+
 services:
   postgres:
     image: postgres:17-alpine
+    container_name: taymna-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -17,6 +23,7 @@ services:
   api:
     build:
       context: ./api
+    container_name: taymna-api
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -56,6 +63,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_AGENT_SERVER_URL: ${NEXT_PUBLIC_AGENT_SERVER_URL:-}
+    container_name: taymna-web
     restart: unless-stopped
     depends_on:
       api:
