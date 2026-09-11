@@ -27,7 +27,9 @@ export function MachineCard({ machine }: { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   const [enrollCommand, setEnrollCommand] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [confirm, setConfirm] = useState<"revoke" | "remove" | null>(null);
+  // Every destructive action (end session, revoke, remove) goes through
+  // this one two-step confirm; only one can be pending at a time.
+  const [confirm, setConfirm] = useState<"end" | "revoke" | "remove" | null>(null);
   const startSession = useStartSession();
   const extendSession = useExtendSession();
   const endSession = useEndSession();
@@ -58,6 +60,7 @@ export function MachineCard({ machine }: { machine: Machine }) {
       await endSession.mutateAsync({ sessionId: session.id, machineId: machine.id });
     } finally {
       setBusy(false);
+      setConfirm(null);
     }
   }
 
@@ -155,32 +158,53 @@ export function MachineCard({ machine }: { machine: Machine }) {
             </p>
             <p className="mt-0.5 text-sm text-ink-soft">{untilLabel(session.expiresAt)}</p>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => handleExtend(30)}
-                className="rounded-full border border-line px-3.5 py-1.5 text-sm text-ink transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
-              >
-                +30 min
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => handleExtend(60)}
-                className="rounded-full border border-line px-3.5 py-1.5 text-sm text-ink transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
-              >
-                +1 hour
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleEnd}
-                className="ml-auto rounded-full px-3.5 py-1.5 text-sm text-brick transition-colors hover:bg-brick/10 disabled:opacity-50"
-              >
-                End session
-              </button>
-            </div>
+            {confirm === "end" ? (
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+                <span className="text-ink-soft">End the session now? {machine.name} locks immediately.</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleEnd}
+                  className="rounded-full bg-brick px-3.5 py-1.5 font-medium text-paper transition-colors hover:bg-brick/90 disabled:opacity-50"
+                >
+                  End
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirm(null)}
+                  className="text-ink-soft hover:text-ink"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleExtend(30)}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-sm text-ink transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+                >
+                  +30 min
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleExtend(60)}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-sm text-ink transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+                >
+                  +1 hour
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirm("end")}
+                  className="ml-auto rounded-full px-3.5 py-1.5 text-sm text-brick transition-colors hover:bg-brick/10 disabled:opacity-50"
+                >
+                  End session
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-4 flex items-center justify-between gap-3">

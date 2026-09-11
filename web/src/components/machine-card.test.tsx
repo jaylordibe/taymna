@@ -94,7 +94,7 @@ describe("MachineCard", () => {
     await waitFor(() => expect(extendSession).toHaveBeenCalledWith("session-1", 30));
   });
 
-  it("ends the active session immediately", async () => {
+  it("ends the active session only after confirmation, and can be cancelled", async () => {
     endSession.mockResolvedValueOnce({
       id: "session-1",
       startedAt: activeMachine.activeSession!.startedAt,
@@ -104,8 +104,14 @@ describe("MachineCard", () => {
     });
 
     renderWithProviders(<MachineCard machine={activeMachine} />);
-    await userEvent.click(screen.getByRole("button", { name: "End session" }));
 
+    await userEvent.click(screen.getByRole("button", { name: "End session" }));
+    expect(endSession).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "+30 min" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "End session" }));
+    await userEvent.click(screen.getByRole("button", { name: "End" }));
     await waitFor(() => expect(endSession).toHaveBeenCalledWith("session-1"));
   });
 
