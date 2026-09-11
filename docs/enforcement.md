@@ -67,13 +67,23 @@ tick.
   "the" user of a shared machine, which the current enrollment flow doesn't
   capture.
 - `agent/src/platform/windows.rs` was written against the documented Win32
-  APIs but has not been compiled or run on a real Windows machine in this
-  project's development environment (no Windows host was available). It
-  builds and its pure-logic dependents are tested on every OS in CI
-  (`.github/workflows/agent.yml`); the actual FFI calls are exercised for
-  real only on the `windows-latest` CI runner's build step, and their
-  runtime behavior (an actual lock) has not been device-verified. Treat it
-  as reviewed, not yet field-verified.
+  APIs; it builds cleanly (verified by cross-compiling to
+  `x86_64-pc-windows-gnu`, and on the `windows-latest` CI runner) but the
+  lock call itself has not been confirmed against a real interactive
+  session. Treat the FFI calls as reviewed, not yet field-verified.
+- Separately, `sc.exe start` initially failed with error 1053 ("service did
+  not respond in a timely fashion") on real hardware during first-time
+  testing: the agent had never implemented the Service Control Manager's
+  handshake (`StartServiceCtrlDispatcherW`), so SCM waited for a
+  "running" status the process never sent. Fixed in
+  `agent/src/main.rs`'s `windows_service_support` module via the
+  `windows-service` crate -- when launched by SCM, the process now
+  registers a control handler, reports `SERVICE_RUNNING`, and reports
+  `SERVICE_STOPPED` on a clean Stop/Shutdown request; when launched any
+  other way (interactively, `cargo run`, double-click) it falls back to
+  running in the foreground exactly as before. The service now starts
+  successfully; whether `disable_usage()` visibly locks the screen once
+  running as that service is the remaining real-hardware check.
 
 ## Linux
 

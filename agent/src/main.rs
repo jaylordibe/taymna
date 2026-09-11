@@ -38,20 +38,127 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+// Not `#[tokio::main]`: a Windows service must call the synchronous,
+// blocking StartServiceCtrlDispatcherW handshake on its own thread *before*
+// any tokio runtime exists (see windows_service_support below), so main()
+// stays plain and only starts a runtime once it knows which path it's on.
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    let cli = Cli::parse();
-    let store = Store::new(None)?;
+    match Cli::parse().command.unwrap_or(Command::Run) {
+        Command::Enroll { server, token } => {
+            let store = Store::new(None)?;
+            tokio::runtime::Runtime::new()?.block_on(enroll(&store, server, token))
+        }
+        Command::Run => {
+            #[cfg(windows)]
+            {
+                // Succeeds only when this process was actually launched *by*
+                // the Service Control Manager (e.g. `sc.exe start`), and
+                // doesn't return until the service has fully stopped. Fails
+                // immediately otherwise -- interactively, `cargo run`,
+                // double-click -- so we fall through to running in the
+                // foreground below, keeping that usage unchanged.
+                if windows_service_support::try_run_as_service().is_ok() {
+                    return Ok(());
+                }
+            }
+            let store = Store::new(None)?;
+            tokio::runtime::Runtime::new()?.block_on(run(store, None))
+        }
+    }
+}
 
-    match cli.command.unwrap_or(Command::Run) {
-        Command::Enroll { server, token } => enroll(&store, server, token).await,
-        Command::Run => run(store).await,
+#[cfg(windows)]
+mod windows_service_support {
+    //! Windows Service Control Manager integration. `sc.exe start` blocks
+    //! waiting for the process to report SERVICE_RUNNING via this exact
+    //! handshake; without it, start fails with error 1053 ("service did not
+    //! respond in a timely fashion") even though the process is running
+    //! fine -- it's just not running fine *as a service*.
+    use super::{run, Store};
+    use std::ffi::OsString;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    use windows_service::service::{
+        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+        ServiceType,
+    };
+    use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
+    use windows_service::{define_windows_service, service_dispatcher};
+
+    /// Must match the name `sc.exe create` registers (docs/agent-install.md).
+    const SERVICE_NAME: &str = "TaymnaAgent";
+    const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
+
+    pub fn try_run_as_service() -> windows_service::Result<()> {
+        service_dispatcher::start(SERVICE_NAME, ffi_service_main)
+    }
+
+    define_windows_service!(ffi_service_main, service_main);
+
+    fn service_main(_arguments: Vec<OsString>) {
+        if let Err(err) = run_service() {
+            tracing::error!(?err, "windows service exited with an error");
+        }
+    }
+
+    fn run_service() -> windows_service::Result<()> {
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let mut stop_tx = Some(stop_tx);
+
+        let event_handler = move |control_event| -> ServiceControlHandlerResult {
+            match control_event {
+                ServiceControl::Stop | ServiceControl::Shutdown => {
+                    // SCM may deliver more than one stop-ish event; the
+                    // channel can only be sent on once.
+                    if let Some(tx) = stop_tx.take() {
+                        let _ = tx.send(());
+                    }
+                    ServiceControlHandlerResult::NoError
+                }
+                ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+                _ => ServiceControlHandlerResult::NotImplemented,
+            }
+        };
+
+        let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
+        status_handle.set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::Running,
+            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        })?;
+
+        let result = tokio::runtime::Runtime::new()
+            .expect("failed to start tokio runtime")
+            .block_on(async {
+                let store = Store::new(None)?;
+                run(store, Some(stop_rx)).await
+            });
+
+        if let Err(err) = &result {
+            tracing::error!(?err, "agent loop exited with an error");
+        }
+
+        status_handle.set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::Stopped,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        })?;
+
+        Ok(())
     }
 }
 
@@ -92,7 +199,10 @@ async fn enroll(store: &Store, server: String, token: String) -> anyhow::Result<
     Ok(())
 }
 
-async fn run(store: Store) -> anyhow::Result<()> {
+async fn run(
+    store: Store,
+    external_stop: Option<tokio::sync::oneshot::Receiver<()>>,
+) -> anyhow::Result<()> {
     let mut state = store.load()?;
     let Some(credentials) = state.credentials.clone() else {
         anyhow::bail!(
@@ -108,7 +218,7 @@ async fn run(store: Store) -> anyhow::Result<()> {
     tokio::spawn(client::run(credentials, events_tx));
 
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
-    let mut shutdown = std::pin::pin!(shutdown_signal());
+    let mut shutdown = std::pin::pin!(wait_for_shutdown(external_stop));
 
     loop {
         tokio::select! {
@@ -163,6 +273,22 @@ async fn run(store: Store) -> anyhow::Result<()> {
                 store.save(&state)?;
             }
         }
+    }
+}
+
+/// Waits for whichever comes first: Ctrl+C/SIGTERM, or (only when running as
+/// a Windows service) SCM asking us to stop -- either way resolving through
+/// the same graceful path in `run()`'s select loop, so state is always
+/// saved before exit regardless of who asked.
+async fn wait_for_shutdown(external_stop: Option<tokio::sync::oneshot::Receiver<()>>) {
+    match external_stop {
+        Some(rx) => {
+            tokio::select! {
+                _ = shutdown_signal() => {}
+                _ = rx => {}
+            }
+        }
+        None => shutdown_signal().await,
     }
 }
 
