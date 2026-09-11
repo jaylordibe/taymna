@@ -69,8 +69,23 @@ cargo run -- enroll --server https://your-taymna-server --token <token>
 cargo run
 ```
 
-Installing it as a systemd service / Windows Service / launchd daemon for
-always-on use: [docs/agent-install.md](docs/agent-install.md).
+Installing it for real on a machine you want to control is one command
+(after adding the machine in the dashboard to get an enrollment token):
+
+```powershell
+# Windows, in PowerShell run as Administrator
+irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1 | iex
+```
+
+```bash
+# Linux (systemd) or macOS (Apple Silicon)
+curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.sh | sudo bash
+```
+
+It downloads the latest release, installs the binary, registers the native
+service (Windows Service / systemd / launchd), enrolls, and starts it. Full
+details, the manual steps, and troubleshooting:
+[docs/agent-install.md](docs/agent-install.md).
 
 ## Development
 

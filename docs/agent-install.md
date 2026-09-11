@@ -3,7 +3,75 @@
 The agent is a single binary. Installing it on a machine you want to
 control is: download the prebuilt file for that OS, put it in place, register
 it as a system service, enroll it once with a token from the dashboard, and
-start it. No installer/updater exists in V1.
+start it. The install scripts below do all of that in one command; the manual
+steps further down are the same procedure spelled out, for reference or for
+doing it by hand.
+
+## Quick install (one command)
+
+First get an enrollment token: in the dashboard, add the machine (or click
+**Installation command** on an existing one). The script asks for the server
+URL (the address your agents reach the API at, e.g.
+`https://taymna.example.com`) and that token.
+
+**Windows** -- in PowerShell opened with "Run as administrator":
+
+```powershell
+irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1 | iex
+```
+
+**Linux (systemd) or macOS (Apple Silicon)**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.sh | sudo bash
+```
+
+Each script first checks the inputs -- that the URL answers as the Taymna
+API at `/health/live` (not, say, the web dashboard's address) and that the
+token has the expected `<uuid>.<secret>` shape -- and stops with a specific
+message before changing anything if either is wrong. It then downloads the
+latest release, installs the binary, registers the system service (with the
+state directory, restart policy, and -- on Windows -- the quoted path and
+per-service environment described below), enrolls, starts the service, and
+prints its status and last log lines. If the server rejects the token
+(single-use, expires 15 minutes after being issued), it says so and tells
+you to get a fresh one and re-run.
+
+Non-interactive use (several machines, or no terminal to prompt on): set
+`TAYMNA_SERVER` and `TAYMNA_TOKEN` in the environment instead --
+`sudo TAYMNA_SERVER=https://... TAYMNA_TOKEN=... bash` on Linux/macOS, or
+`$env:TAYMNA_SERVER = '...'; $env:TAYMNA_TOKEN = '...'` before the `irm`
+line on Windows. `TAYMNA_VERSION=v0.1.3` pins a release.
+
+Re-running is always safe and is the way to repair a broken or half-finished
+install: every step re-asserts its result (binary replaced, service
+definition rewritten, startup type, quoted path and per-service environment
+re-applied, stray agent processes stopped), and the script only reports
+success after seeing the agent's own "connected to Taymna server" log line
+-- if the service starts but can't connect (stale credential after a server
+reset, wrong address, unreachable server), it shows the last log lines and
+says which of those it looks like. Re-running the same command later
+**upgrades** the binary and keeps the existing enrollment; if you pass a
+different `TAYMNA_SERVER` than the one it was enrolled with, it notices and
+requires a fresh token. If the **server URL changes** (new tunnel address,
+moved to a VPS), get a fresh token and re-enroll without re-downloading:
+
+```powershell
+$env:TAYMNA_TOKEN = '<token>'; $env:TAYMNA_SERVER = 'https://new-address'; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1))) -Reenroll
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.sh | sudo TAYMNA_SERVER=https://new-address TAYMNA_TOKEN=<token> bash -s -- --reenroll
+```
+
+These are ordinary `curl | bash` / `irm | iex` installers: you're running a
+script fetched from this repository as root/Administrator. Both scripts are
+short and live at stable URLs (`install/install.sh`, `install/install.ps1`)
+if you'd rather read them first or run them from a local copy.
+
+The macOS step that can't be scripted: after installing, grant the agent
+Accessibility permission (System Settings -> Privacy & Security ->
+Accessibility) or locking will fail until you do.
 
 ## 1. Get the binary
 
@@ -14,7 +82,7 @@ Download the file for the target OS from the
 | OS | Release file | Installed as |
 |---|---|---|
 | Windows (x86-64) | `taymna-agent-windows-x86_64.exe` | `C:\Program Files\Taymna\taymna-agent.exe` |
-| Linux (x86-64) | `taymna-agent-linux-x86_64` | `/usr/local/bin/taymna-agent` |
+| Linux (x86-64, any distribution -- statically linked) | `taymna-agent-linux-x86_64` | `/usr/local/bin/taymna-agent` |
 | macOS (Apple Silicon) | `taymna-agent-macos-arm64` | `/usr/local/bin/taymna-agent` |
 
 The steps below assume the download landed in your Downloads folder; adjust
@@ -224,9 +292,14 @@ macOS may quarantine a downloaded binary; if `--version` is blocked, run
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/var/log/taymna-agent.log</string>
+  <key>StandardErrorPath</key><string>/var/log/taymna-agent.log</string>
 </dict>
 </plist>
 ```
+
+Without the two `Standard*Path` keys launchd discards the agent's output and
+a failure is invisible; with them, logs are in `/var/log/taymna-agent.log`.
 
 **Enroll and start:**
 

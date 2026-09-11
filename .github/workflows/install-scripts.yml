@@ -1,0 +1,23 @@
+name: install scripts
+
+on:
+  push:
+    branches: [main]
+    paths: ['install/**', '.github/workflows/install-scripts.yml']
+  pull_request:
+    paths: ['install/**', '.github/workflows/install-scripts.yml']
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S style install/install.sh
+      # No Windows host is needed to catch a syntax error in the PowerShell
+      # installer; the parser reports them without executing anything.
+      - shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+          Write-Host "install.ps1 parses cleanly"
