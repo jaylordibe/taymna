@@ -65,6 +65,19 @@ administrator" -- the window title must say "Administrator: Windows
 PowerShell"). A non-elevated shell fails `sc.exe create`/`start` with
 "Access is denied" (error 5).
 
+The Windows binary is self-contained (the C runtime is statically linked,
+see `agent/.cargo/config.toml`), so no Visual C++ Redistributable is needed.
+Sanity-check any freshly copied binary before registering it:
+
+```powershell
+& "C:\Program Files\Taymna\taymna-agent.exe" --version; "exit code: $LASTEXITCODE"
+```
+
+It must print the version and `exit code: 0`. An exit code of `-1073741515`
+(STATUS_DLL_NOT_FOUND) with no output means a build older than v0.1.3, which
+still depended on VCRUNTIME140.dll -- as a service that failure is completely
+silent and shows up only as `sc.exe start` failing with error 1053.
+
 Register the binary as a service (LocalSystem, required for both the
 `WTSQueryUserToken`/`CreateProcessAsUserW` technique in
 [enforcement.md](enforcement.md) and for `sc.exe`/SCM to manage it at all):
@@ -73,8 +86,24 @@ Register the binary as a service (LocalSystem, required for both the
 mkdir "C:\Program Files\Taymna" -Force
 Copy-Item ".\taymna-agent.exe" "C:\Program Files\Taymna\taymna-agent.exe"
 
-sc.exe create TaymnaAgent binPath= "C:\Program Files\Taymna\taymna-agent.exe run" start= auto
+New-Service -Name TaymnaAgent -BinaryPathName '"C:\Program Files\Taymna\taymna-agent.exe" run' -StartupType Automatic
 sc.exe failure TaymnaAgent reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc.exe qc TaymnaAgent
+```
+
+The exe path **must be quoted inside** the service's binary path (note the
+inner `"..."` in the `New-Service` line) because it contains a space. The
+tempting `sc.exe create ... binPath= "C:\Program Files\...\taymna-agent.exe run"`
+stores it *unquoted*: SCM still finds and launches the exe, but the process
+then sees its own command line as `C:\Program`, `Files\Taymna\taymna-agent.exe`,
+`run` -- the CLI parser rejects `Files\Taymna\...` as an unknown subcommand and
+exits before ever reaching the Service Control Manager handshake. The only
+symptom is a bare "1053: did not respond in a timely fashion" on start, with
+no process and no log file. Confirm with `sc.exe qc`: `BINARY_PATH_NAME` must
+show the path in quotes. To fix an already-registered service in place:
+
+```powershell
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" -Name ImagePath -Value '"C:\Program Files\Taymna\taymna-agent.exe" run'
 ```
 
 The service (LocalSystem) and an interactive `enroll` run (your own admin

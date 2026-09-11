@@ -1,0 +1,10 @@
+# Statically link the C runtime into the Windows build. The MSVC toolchain
+# links it dynamically by default, which makes the agent depend on
+# VCRUNTIME140.dll (the Visual C++ Redistributable) -- not part of Windows
+# itself, and absent on plenty of real machines. On such a machine the exe
+# fails to load at all (exit code -1073741515, STATUS_DLL_NOT_FOUND) with no
+# message when run as a service, which surfaces only as a bare "1053" from
+# `sc.exe start`. The agent is copied onto arbitrary machines as a single
+# file (docs/agent-install.md), so it must carry no such dependency.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
