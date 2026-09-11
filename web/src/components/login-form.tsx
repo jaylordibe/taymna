@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { getStoredToken } from "@/lib/auth-storage";
 import { ApiError } from "@/lib/api";
 
 export function LoginForm() {
   const { login } = useAuth();
   const router = useRouter();
+
+  // Already signed in (e.g. reached /login from a bookmark): go to the
+  // dashboard instead of showing a form whose submission is pointless.
+  useEffect(() => {
+    if (getStoredToken()) router.replace("/");
+  }, [router]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

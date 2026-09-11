@@ -58,6 +58,28 @@ export function useIssueEnrollmentToken() {
   });
 }
 
+export function useRevokeCredential() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (machineId: string) => api.revokeCredential(machineId),
+    onSuccess: (machine) =>
+      queryClient.setQueryData<Machine[]>(machinesQueryKey, (current) =>
+        current?.map((m) => (m.id === machine.id ? machine : m)),
+      ),
+  });
+}
+
+export function useDeleteMachine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (machineId: string) => api.deleteMachine(machineId),
+    onSuccess: (_result, machineId) =>
+      queryClient.setQueryData<Machine[]>(machinesQueryKey, (current) =>
+        current?.filter((m) => m.id !== machineId),
+      ),
+  });
+}
+
 export function useCreateMachine() {
   const queryClient = useQueryClient();
   return useMutation({

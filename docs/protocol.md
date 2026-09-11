@@ -85,6 +85,7 @@ still cheap):
 ```json
 { "type": "machine_updated", "machineId": "...", "online": true, "lastSeenAt": "..." }
 { "type": "session_updated", "machineId": "...", "session": { ... } | null }
+{ "type": "machine_removed", "machineId": "..." }
 ```
 
 The dashboard applies these directly to its local cache (no refetch), and

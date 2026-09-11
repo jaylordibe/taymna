@@ -221,4 +221,24 @@ describe('Taymna session lifecycle (e2e, real Postgres)', () => {
     expect(stillValid?.credentialHash).toBeNull();
     void machineSecret; // credential above is now revoked regardless of the value
   });
+
+  it('removes a machine along with its sessions and tokens', async () => {
+    await request(app.getHttpServer())
+      .delete(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(404);
+    // Removing it again is a clean 404, not a 500 from a missing row.
+    await request(app.getHttpServer())
+      .delete(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(404);
+
+    expect(await prisma.session.count({ where: { machineId } })).toBe(0);
+    expect(await prisma.enrollmentToken.count({ where: { machineId } })).toBe(0);
+  });
 });

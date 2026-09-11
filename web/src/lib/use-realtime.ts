@@ -8,7 +8,8 @@ import { machinesQueryKey } from "./machines-query";
 
 type ServerToOperatorMessage =
   | { type: "machine_updated"; machineId: string; online: boolean; lastSeenAt: string | null }
-  | { type: "session_updated"; machineId: string; session: SessionState | null };
+  | { type: "session_updated"; machineId: string; session: SessionState | null }
+  | { type: "machine_removed"; machineId: string };
 
 const MIN_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 15000;
@@ -66,6 +67,9 @@ export function useRealtime(token: string | null): void {
             return current.map((m) =>
               m.id === message.machineId ? { ...m, activeSession: message.session } : m,
             );
+          }
+          if (message.type === "machine_removed") {
+            return current.filter((m) => m.id !== message.machineId);
           }
           return current;
         });

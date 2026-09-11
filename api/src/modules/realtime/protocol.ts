@@ -28,4 +28,5 @@ export type ServerToOperatorMessage =
       online: boolean;
       lastSeenAt: string | null;
     }
-  | { type: 'session_updated'; machineId: string; session: SessionStateDto | null };
+  | { type: 'session_updated'; machineId: string; session: SessionStateDto | null }
+  | { type: 'machine_removed'; machineId: string };

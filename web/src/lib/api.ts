@@ -56,6 +56,12 @@ export const api = {
       method: "POST",
     }),
 
+  revokeCredential: (machineId: string) =>
+    request<Machine>(`/machines/${machineId}/credential`, { method: "DELETE" }),
+
+  deleteMachine: (machineId: string) =>
+    request<void>(`/machines/${machineId}`, { method: "DELETE" }),
+
   startSession: (machineId: string, durationMinutes: number) =>
     request<SessionState>(`/machines/${machineId}/sessions`, {
       method: "POST",

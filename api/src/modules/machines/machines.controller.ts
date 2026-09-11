@@ -52,6 +52,13 @@ export class MachinesController {
     return this.machines.revokeCredential(id);
   }
 
+  @Delete(':id')
+  @UseGuards(OperatorAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.machines.remove(id);
+  }
+
   @Post('enroll')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

@@ -17,6 +17,10 @@ COPY . .
 # Changing it requires rebuilding this image. See docs/self-hosting.md.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Optional: the address agents use to reach the API when it differs from the
+# browser's (tunnel or public hostname). Empty means "same as API URL".
+ARG NEXT_PUBLIC_AGENT_SERVER_URL=
+ENV NEXT_PUBLIC_AGENT_SERVER_URL=${NEXT_PUBLIC_AGENT_SERVER_URL}
 RUN yarn build
 
 FROM node:24-bookworm-slim AS runtime

@@ -50,6 +50,7 @@ services:
       context: ./web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_AGENT_SERVER_URL: ${NEXT_PUBLIC_AGENT_SERVER_URL:-}
     restart: unless-stopped
     depends_on:
       api:

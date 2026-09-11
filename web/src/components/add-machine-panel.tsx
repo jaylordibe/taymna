@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { API_URL } from "@/lib/api";
+import { installCommand, installHint } from "@/lib/install-command";
 import type { Platform } from "@/lib/types";
 import { useCreateMachine } from "@/lib/use-machines";
 
@@ -35,9 +35,7 @@ export function AddMachinePanel() {
     e.preventDefault();
     if (!name.trim()) return;
     const result = await createMachine.mutateAsync({ name: name.trim(), platform });
-    setEnrollCommand(
-      `taymna-agent enroll --server ${API_URL} --token ${result.enrollmentToken}`,
-    );
+    setEnrollCommand(installCommand(platform, result.enrollmentToken));
   }
 
   function close() {
@@ -53,8 +51,8 @@ export function AddMachinePanel() {
         <div>
           <h2 className="text-base font-semibold text-ink">Install the agent on {name}</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Run this once on the machine. The token expires in 15 minutes and can only be
-            used once.
+            {installHint(platform)} It installs the agent as a system service and enrolls
+            this machine. The token expires in 15 minutes and can only be used once.
           </p>
           <div className="mt-3 rounded-lg border border-line bg-paper p-3 font-mono text-xs break-all text-ink">
             {enrollCommand}

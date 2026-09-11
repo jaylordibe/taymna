@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import type { Machine } from "@/lib/types";
-import { API_URL } from "@/lib/api";
+import { installCommand, installHint } from "@/lib/install-command";
 import { platformLabel } from "@/lib/platform-label";
 import { lastSeenLabel, remainingLabel, untilLabel } from "@/lib/format-time";
 import { useNow } from "@/lib/use-now";
 import {
+  useDeleteMachine,
   useEndSession,
   useExtendSession,
   useIssueEnrollmentToken,
+  useRevokeCredential,
   useStartSession,
 } from "@/lib/use-machines";
 import { StartSessionControl } from "./start-session-control";
@@ -25,10 +27,13 @@ export function MachineCard({ machine }: { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   const [enrollCommand, setEnrollCommand] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirm, setConfirm] = useState<"revoke" | "remove" | null>(null);
   const startSession = useStartSession();
   const extendSession = useExtendSession();
   const endSession = useEndSession();
   const issueEnrollmentToken = useIssueEnrollmentToken();
+  const revokeCredential = useRevokeCredential();
+  const deleteMachine = useDeleteMachine();
 
   const session = machine.activeSession;
   const isExpired = session ? new Date(session.expiresAt).getTime() <= now : false;
@@ -68,7 +73,26 @@ export function MachineCard({ machine }: { machine: Machine }) {
   async function handleGetInstallCommand() {
     setCopied(false);
     const result = await issueEnrollmentToken.mutateAsync(machine.id);
-    setEnrollCommand(`taymna-agent enroll --server ${API_URL} --token ${result.token}`);
+    setEnrollCommand(installCommand(machine.platform, result.token));
+  }
+
+  async function handleRevoke() {
+    setBusy(true);
+    try {
+      await revokeCredential.mutateAsync(machine.id);
+    } finally {
+      setBusy(false);
+      setConfirm(null);
+    }
+  }
+
+  async function handleRemove() {
+    setBusy(true);
+    try {
+      await deleteMachine.mutateAsync(machine.id);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -87,8 +111,8 @@ export function MachineCard({ machine }: { machine: Machine }) {
         {enrollCommand ? (
           <div className="mt-4 rounded-lg border border-line bg-paper p-3">
             <p className="text-sm text-ink-soft">
-              Run this once on {machine.name}. The token expires in 15 minutes and can only be
-              used once.
+              {installHint(machine.platform)} It installs (or updates) the agent and enrolls{" "}
+              {machine.name}. The token expires in 15 minutes and can only be used once.
             </p>
             <div className="mt-2 rounded-lg border border-line bg-surface p-3 font-mono text-xs break-all text-ink">
               {enrollCommand}
@@ -164,6 +188,69 @@ export function MachineCard({ machine }: { machine: Machine }) {
             <StartSessionControl busy={busy} onStart={handleStart} />
           </div>
         )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-xs">
+          {confirm === "revoke" ? (
+            <>
+              <span className="text-ink-soft">
+                Revoke its credential? The agent disconnects and needs a fresh enrollment.
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleRevoke}
+                className="font-medium text-brick hover:underline disabled:opacity-50"
+              >
+                Revoke
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                className="text-ink-soft hover:text-ink"
+              >
+                Cancel
+              </button>
+            </>
+          ) : confirm === "remove" ? (
+            <>
+              <span className="text-ink-soft">
+                Remove {machine.name}? Its sessions and tokens are deleted too.
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleRemove}
+                className="font-medium text-brick hover:underline disabled:opacity-50"
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                className="text-ink-soft hover:text-ink"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setConfirm("revoke")}
+                className="text-ink-soft transition-colors hover:text-ink"
+              >
+                Revoke credential
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirm("remove")}
+                className="ml-auto text-ink-soft transition-colors hover:text-brick"
+              >
+                Remove machine
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </article>
   );

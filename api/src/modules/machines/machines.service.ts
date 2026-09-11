@@ -71,6 +71,15 @@ export class MachinesService {
     return this.toDto(machine);
   }
 
+  async remove(id: string): Promise<void> {
+    await this.requireMachine(id);
+    // Kick a live agent first so it can't keep talking about a row that's
+    // about to vanish; its sessions and tokens go with it (onDelete: Cascade).
+    this.registry.disconnectMachine(id, 4002, 'Machine removed');
+    await this.prisma.machine.delete({ where: { id } });
+    this.registry.broadcastToOperators({ type: 'machine_removed', machineId: id });
+  }
+
   /**
    * Completes enrollment for a one-time token shaped `<enrollmentTokenId>.<secret>`
    * (same `id.secret` shape as a machine credential -- see docs/enrollment.md).
