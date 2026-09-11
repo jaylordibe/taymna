@@ -11,8 +11,13 @@ cargo run          # or: cargo run -- run
 
 `cargo run` (no args) is equivalent to `cargo run -- run` and uses a
 user-writable state directory by default (resolved via the `directories`
-crate, or overridden with `TAYMNA_STATE_DIR`). Building it yourself:
-`cargo build --release` produces `target/release/taymna-agent`.
+crate, or overridden with `TAYMNA_STATE_DIR`).
+
+For installing on a machine you're controlling, you don't need a clone or a
+Rust toolchain there: grab the prebuilt binary for that OS from the
+[Releases page](https://github.com/jaylordibe/taymna/releases) (built by
+`.github/workflows/release.yml` on every version tag). Building it yourself
+instead: `cargo build --release` produces `target/release/taymna-agent`.
 
 For always-on use, install it as the OS's native service so it starts on
 boot and restarts if it crashes. No installer/updater beyond these

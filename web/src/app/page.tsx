@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { getStoredToken } from "@/lib/auth-storage";
 import { useMachines } from "@/lib/use-machines";
 import { useRealtime } from "@/lib/use-realtime";
 import { MachineCard } from "@/components/machine-card";
@@ -15,7 +16,13 @@ export default function DashboardPage() {
   useRealtime(token);
 
   useEffect(() => {
-    if (!token) router.replace("/login");
+    // Read the real, current value here rather than trusting the `token`
+    // closed over from render: on the hydration commit, `token` is still
+    // the server snapshot (always null, see auth-storage.ts) even for an
+    // already-authenticated operator, and this effect can fire with that
+    // stale value before useSyncExternalStore's post-hydration correction
+    // lands -- redirecting a logged-in operator to /login on every refresh.
+    if (!getStoredToken()) router.replace("/login");
   }, [token, router]);
 
   if (!token) return null;

@@ -1,0 +1,63 @@
+name: release agent
+
+# Push a tag like v0.1.0 to build the agent for all 3 platforms and attach
+# the binaries to a GitHub Release under that tag -- a stable, non-expiring
+# download link (unlike this repo's `agent` CI workflow, whose artifacts
+# expire after 14 days) so a machine can be set up without cloning the repo
+# or installing a Rust toolchain. See docs/agent-install.md.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+defaults:
+  run:
+    working-directory: agent
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: taymna-agent-linux-x86_64
+            binary_name: taymna-agent
+          - os: windows-latest
+            asset_name: taymna-agent-windows-x86_64.exe
+            binary_name: taymna-agent.exe
+          - os: macos-latest
+            asset_name: taymna-agent-macos-arm64
+            binary_name: taymna-agent
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+      - run: cargo build --release
+      - name: Package binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: agent/dist/${{ matrix.asset_name }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
