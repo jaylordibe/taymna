@@ -77,8 +77,10 @@ always-on use: [docs/agent-install.md](docs/agent-install.md).
 Each app runs independently against its own dev tooling:
 
 ```bash
-# API (needs a local Postgres -- see docker-compose.yml for the shape, or run
-# `docker run -e POSTGRES_USER=taymna -e POSTGRES_PASSWORD=... -e POSTGRES_DB=taymna -p 5432:5432 postgres:17-alpine`)
+# API (needs a local Postgres -- api/.env.example assumes the container
+# below on port 55432, to avoid clashing with a Postgres you may already
+# have running locally on the default 5432)
+# `docker run -e POSTGRES_USER=taymna -e POSTGRES_PASSWORD=devpassword -e POSTGRES_DB=taymna -p 55432:5432 postgres:17-alpine`
 cd api
 cp .env.example .env   # or hand-write one pointing at your local Postgres
 yarn install
