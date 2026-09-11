@@ -1,79 +1,82 @@
-# Taymna
+<h1 align="center">Taymna</h1>
 
-Open-source, self-hosted timed computer control.
+<p align="center">
+  <strong>Give a computer time. When the time is up, make it unavailable.</strong><br>
+  Open-source, self-hosted timed computer control — a dashboard for you, a tiny agent for each machine.
+</p>
 
-"Taymna" is inspired by "time na" -- a familiar Filipino/Cebuano expression
-conveying that it is time, or time is up.
+<p align="center">
+  <a href="https://github.com/jaylordibe/taymna/actions/workflows/api-web.yml"><img alt="api & web" src="https://github.com/jaylordibe/taymna/actions/workflows/api-web.yml/badge.svg"></a>
+  <a href="https://github.com/jaylordibe/taymna/actions/workflows/agent.yml"><img alt="agent" src="https://github.com/jaylordibe/taymna/actions/workflows/agent.yml/badge.svg"></a>
+  <a href="https://github.com/jaylordibe/taymna/actions/workflows/install-scripts.yml"><img alt="install scripts" src="https://github.com/jaylordibe/taymna/actions/workflows/install-scripts.yml/badge.svg"></a>
+  <a href="https://github.com/jaylordibe/taymna/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/jaylordibe/taymna?label=release"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+</p>
 
-Set how long a computer can be used, extend the time when needed, and
-automatically make it unavailable when the session expires.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#platform-support">Platform support</a> ·
+  <a href="#documentation">Docs</a> ·
+  <a href="#development">Development</a>
+</p>
 
-## Architecture
+---
 
-```
-                         Phone / laptop (browser)
-                                   |
-                          HTTPS + WSS (LAN or VPS)
-                                   |
-                    +--------------------------+
-                    |   Web (Next.js, PWA)      |
-                    +--------------------------+
-                                   |
-                          HTTPS + WSS (JWT bearer)
-                                   |
-                    +--------------------------+
-                    |   API (NestJS + Prisma)   |
-                    +-------------+------------+
-                                   |
-                              Postgres
-                                   |
-                    WSS (machine credential, outbound from agent)
-                                   |
-              +--------------------+--------------------+
-     +----------------+   +----------------+   +----------------+
-     | Rust agent      |   | Rust agent      |   | Rust agent      |
-     | (Windows)        |   | (Linux)         |   | (macOS)         |
-     +----------------+   +----------------+   +----------------+
-```
+*Taymna* comes from **"time na"** — Filipino/Cebuano for *"it's time"* / *"time's up."*
 
-Agents always dial **out**; no inbound port-forwarding to controlled
-machines is ever required, on a LAN or behind a VPS. Full details:
-[docs/architecture.md](docs/architecture.md).
+You run the server (a laptop on your LAN or a small VPS). Each computer you
+want to control runs the agent as a system service. From your phone or
+browser you start a session — 30 minutes, 2 hours, whatever — and the
+machine is usable until it runs out. No session, no access: the screen is
+locked and stays locked.
 
-## Screenshots
+## Highlights
 
-_(placeholder -- add dashboard screenshots here once you've deployed it)_
+- **One dashboard, from anywhere** — an installable PWA (phone home screen,
+  full-screen) with live countdowns pushed over WebSockets; no polling.
+- **Sessions that actually expire** — the agent stores absolute deadlines,
+  guards against clock rollback with a monotonic clock, and locks the
+  machine on time **even if the server is unreachable**. Restarting the
+  agent never resets the timer.
+- **Enforcement, not decoration** — a real OS lock via the platform's own
+  mechanism (Windows session lock, `loginctl`, macOS lock), re-asserted
+  every ~2 seconds. Not a full-screen web page someone can Alt-Tab past.
+- **One-command install** — `irm … | iex` on Windows, `curl … | sudo bash`
+  on Linux/macOS: downloads, registers the service, enrolls, starts, and
+  verifies the agent connected. Re-running repairs a broken install.
+- **Nothing to port-forward on controlled machines** — agents dial *out*
+  over WSS with a per-machine credential; the server is the only thing that
+  needs to be reachable.
+- **Small on purpose** — one domain concept (*Machine → timed Session*),
+  three services, Docker Compose. No Redis, no queues, no plugin system.
+
+<!--
+Screenshot: drop a dashboard capture at docs/images/dashboard.png and
+uncomment:
+<p align="center"><img src="docs/images/dashboard.png" alt="Taymna dashboard" width="720"></p>
+-->
 
 ## Quick start
 
+**1. Run the server** (Docker Compose):
+
 ```bash
-git clone https://github.com/<you>/taymna.git
+git clone https://github.com/jaylordibe/taymna.git
 cd taymna
 cp .env.example .env
-$EDITOR .env   # at minimum: JWT_SECRET, ADMIN_PASSWORD, WEB_ORIGIN, NEXT_PUBLIC_API_URL
+$EDITOR .env          # at minimum: JWT_SECRET, ADMIN_PASSWORD, WEB_ORIGIN, NEXT_PUBLIC_API_URL
 docker compose up -d
 ```
 
-Then open the web origin you configured, sign in with `ADMIN_EMAIL` /
-`ADMIN_PASSWORD`, add a machine, and install the agent on it. Full
-walkthrough: [docs/self-hosting.md](docs/self-hosting.md).
+Open the web origin you configured (e.g. `http://192.168.1.50:3001`), sign
+in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, and click **Add machine**.
 
-## Agent setup
-
-The agent is a single Rust binary that enrolls once and then runs as a
-native OS service. Development doesn't require installing a service:
-
-```bash
-cd agent
-cargo run -- enroll --server https://your-taymna-server --token <token>
-cargo run
-```
-
-Installing it for real on a machine you want to control is one command
-(after adding the machine in the dashboard to get an enrollment token):
+**2. Install the agent** on the machine to control — the dashboard shows
+this command pre-filled with your server address and a one-time token:
 
 ```powershell
-# Windows, in PowerShell run as Administrator
+# Windows — PowerShell run as Administrator
 irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1 | iex
 ```
 
@@ -82,91 +85,121 @@ irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1
 curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.sh | sudo bash
 ```
 
-It downloads the latest release, installs the binary, registers the native
-service (Windows Service / systemd / launchd), enrolls, and starts it. Full
-details, the manual steps, and troubleshooting:
-[docs/agent-install.md](docs/agent-install.md).
+**3. Start a session.** The machine shows *Online*, is locked until you
+start a session, becomes usable the moment you do, and locks again when
+the time runs out.
+
+Putting it on the internet with TLS — including a VPS that already hosts
+other apps — is covered step by step in
+[docs/deploy-ubuntu-vps.md](docs/deploy-ubuntu-vps.md).
+
+## How it works
+
+```
+                    Phone / laptop (browser, installable PWA)
+                                      │
+                               HTTPS + WSS (JWT)
+                                      ▼
+        ┌──────────────────────┐            ┌──────────────────────────┐
+        │  Web  ·  Next.js     │ ────────── │  API  ·  NestJS + Prisma │ ──── Postgres
+        └──────────────────────┘            └────────────┬─────────────┘
+                                                         ▲
+                             WSS, outbound only, per-machine credential
+                        ┌────────────────┬───────────────┴┬────────────────┐
+                        │ agent (Windows)│ agent (Linux)  │ agent (macOS)  │
+                        │ Windows Service│ systemd        │ launchd        │
+                        └────────────────┴────────────────┴────────────────┘
+```
+
+| Piece | Stack | Role |
+|---|---|---|
+| `api/` | NestJS, Prisma, PostgreSQL | Source of truth: machines, sessions, enrollment, the WebSocket protocol |
+| `web/` | Next.js, React Query | The dashboard; a PWA that installs to a phone's home screen |
+| `agent/` | Rust (tokio, rustls) | One static binary per OS; runs as a system service, enforces locally |
+
+The agent never receives commands — only *facts* about the current session
+(`expiresAt`, status). It decides locally, every 2 seconds, whether the
+machine should be usable, which is why a dead network or a stopped server
+can't extend anyone's time. Details: [docs/architecture.md](docs/architecture.md),
+[docs/protocol.md](docs/protocol.md), [docs/offline-expiry.md](docs/offline-expiry.md).
+
+## Platform support
+
+| OS | Runs as | Lock mechanism | Status |
+|---|---|---|---|
+| **Windows** (x86-64) | Windows Service (LocalSystem) | Locks the console session via `WTSQueryUserToken` + `CreateProcessAsUserW` | ✅ **Verified on real hardware** (Windows 11): locks with no session, re-locks in ~2 s, unlocks on start, locks at expiry |
+| **Linux** (x86-64, any distro) | systemd | `loginctl lock-sessions` (systemd-logind) | 🟡 Built as a static binary; decision logic verified live, the lock call itself not yet run against a real desktop |
+| **macOS** (Apple Silicon) | launchd | Simulates the system lock shortcut (needs one-time Accessibility permission) | 🟡 Builds and is reviewed; not yet run on a real Mac |
+
+The honest limitation shared by all three: a screen lock can't stop someone
+who knows their own OS password from unlocking (Taymna re-locks within ~2 s),
+and it doesn't block a fresh login at boot. Exactly what is and isn't
+guaranteed per OS: [docs/enforcement.md](docs/enforcement.md).
+
+## Security model, in short
+
+- Operator login → argon2id-hashed password, JWT bearer (no cookies, so no
+  CSRF surface).
+- Each machine has its own credential, issued once through a single-use,
+  15-minute enrollment token, stored hashed, revocable from the dashboard.
+  There is no shared secret anywhere.
+- The WebSocket protocol has no "run this" message — structurally, the
+  server cannot execute anything on a machine.
+- Input validation on every route, rate limiting on auth and enrollment,
+  CORS locked to the dashboard's origin, secrets redacted from logs.
+
+Full write-up and known limitations: [docs/security.md](docs/security.md).
+
+## Documentation
+
+| | |
+|---|---|
+| [Self-hosting](docs/self-hosting.md) | Environment variables, first start, upgrading, backups |
+| [Deploy on an Ubuntu VPS](docs/deploy-ubuntu-vps.md) | From a blank server to HTTPS — Caddy, nginx, or nginx-in-Docker; shared servers |
+| [Agent installation](docs/agent-install.md) | The one-line installers, what they do, manual steps, troubleshooting |
+| [Architecture](docs/architecture.md) | The three pieces and why there are only three |
+| [Enforcement](docs/enforcement.md) | Per-OS lock mechanism, guarantees, limitations, verification status |
+| [Offline expiry](docs/offline-expiry.md) | How a session ends on time without a server |
+| [Enrollment](docs/enrollment.md) | How a machine gets its credential |
+| [Protocol](docs/protocol.md) | Every WebSocket message |
+| [Security](docs/security.md) | Threat model, controls, known gaps |
 
 ## Development
 
-Each app runs independently against its own dev tooling:
+Each app is self-contained with its own tooling (`yarn` for `api/` and
+`web/`, `cargo` for `agent/`).
 
 ```bash
-# API (needs a local Postgres -- api/.env.example assumes the container
-# below on port 55432, to avoid clashing with a Postgres you may already
-# have running locally on the default 5432)
-# `docker run -e POSTGRES_USER=taymna -e POSTGRES_PASSWORD=devpassword -e POSTGRES_DB=taymna -p 55432:5432 postgres:17-alpine`
-cd api
-cp .env.example .env   # or hand-write one pointing at your local Postgres
-yarn install
-yarn db:migrate:dev
-yarn start:dev
+# API — needs a local Postgres; api/.env.example expects this one on port 55432
+docker run -d --name taymna-dev-postgres -e POSTGRES_USER=taymna -e POSTGRES_PASSWORD=devpassword -e POSTGRES_DB=taymna -p 55432:5432 postgres:17-alpine
+cd api && cp .env.example .env && yarn install && yarn db:migrate:dev && yarn start:dev
 
 # Web
-cd web
-yarn install
-yarn dev
+cd web && yarn install && yarn dev
 
-# Agent
-cd agent
-cargo run
+# Agent (no service needed for development)
+cd agent && cargo run -- enroll --server http://localhost:3000 --token <token> && cargo run
 ```
-
-Test/lint/build commands per app:
 
 | | lint | typecheck | test | build |
 |---|---|---|---|---|
-| `api/` | `yarn lint` | `yarn typecheck` | `yarn test` + `yarn test:e2e` | `yarn build` |
+| `api/` | `yarn lint` | `yarn typecheck` | `yarn test` · `yarn test:e2e` (real Postgres) | `yarn build` |
 | `web/` | `yarn lint` | `yarn typecheck` | `yarn test` | `yarn build` |
-| `agent/` | `cargo fmt --check` | -- | `cargo test` | `cargo build` |, plus `cargo clippy --all-targets -- -D warnings`
+| `agent/` | `cargo fmt --check` · `cargo clippy --all-targets -- -D warnings` | — | `cargo test` | `cargo build` |
 
-## Self-hosting
-
-[docs/self-hosting.md](docs/self-hosting.md) -- prerequisites, environment
-variables (and the two that trip people up), first startup, enrolling a
-machine, starting/extending/ending sessions, stopping and upgrading.
-
-[docs/deploy-ubuntu-vps.md](docs/deploy-ubuntu-vps.md) -- the full
-walkthrough for a public deployment on an Ubuntu VPS with TLS, including a
-server that already hosts other apps (free port selection, adding to an
-existing Caddy or nginx).
-
-## Security model
-
-[docs/security.md](docs/security.md) -- operator auth, machine credentials,
-input validation, transport, logging, and known limitations stated
-plainly.
-
-## Platform support / status
-
-| OS | Enforcement mechanism | Status |
-|---|---|---|
-| Windows | Service (LocalSystem) locks the active console session via `WTSQueryUserToken` + `CreateProcessAsUserW` | **Device-verified** on Windows 11 (2026-09-11): locks with no session, re-locks within ~2s, unlocks on session start, locks at expiry |
-| Linux | systemd service; `loginctl lock-sessions` via systemd-logind | Implemented and exercised live (error/retry and start/stop behavior confirmed end-to-end); real lock call not exercised against a live desktop session in development |
-| macOS | launchd daemon; simulates the OS lock shortcut via System Events (requires Accessibility permission, granted once during install) | Implemented against documented APIs; not device-verified (no macOS host in development) |
-
-Every platform shares the same honest limitation: locking the screen
-doesn't block a not-yet-logged-in session at a fresh boot, and can't stop
-someone who already knows their own OS password from unlocking (Taymna's
-re-assertion loop re-locks within ~2 seconds if that happens while the
-session should be blocked). Full detail: [docs/enforcement.md](docs/enforcement.md).
-
-## Other documentation
-
-- [docs/protocol.md](docs/protocol.md) -- the WebSocket protocol, message by message
-- [docs/enrollment.md](docs/enrollment.md) -- how an agent gets associated with a machine
-- [docs/offline-expiry.md](docs/offline-expiry.md) -- the clock-integrity strategy behind "a session expires even if the server is unreachable"
+CI runs all of the above on every push; pushing a `v*.*.*` tag builds the
+agent for all three platforms and attaches the binaries to a
+[GitHub Release](https://github.com/jaylordibe/taymna/releases).
 
 ## Contributing
 
-This is a young project; issues and PRs are welcome. Before sending a PR:
-run the lint/typecheck/test/build commands for whichever app(s) you
-touched (table above), and for anything touching the WebSocket protocol,
-session state machine, or platform enforcement, please read
-[docs/protocol.md](docs/protocol.md), [docs/offline-expiry.md](docs/offline-expiry.md),
-and [docs/enforcement.md](docs/enforcement.md) first -- those documents
-describe real invariants the tests depend on, not just style preferences.
+Issues and PRs are welcome. Before opening one, run the checks above for
+whatever you touched. If your change involves the WebSocket protocol, the
+session state machine, or platform enforcement, read
+[docs/protocol.md](docs/protocol.md), [docs/offline-expiry.md](docs/offline-expiry.md)
+and [docs/enforcement.md](docs/enforcement.md) first — they describe
+invariants the tests depend on, not style preferences.
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE)
