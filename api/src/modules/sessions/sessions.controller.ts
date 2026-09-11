@@ -12,7 +12,7 @@ import {
 import { SessionsService } from './sessions.service.js';
 import { StartSessionDto } from './dto/start-session.dto.js';
 import { ExtendSessionDto } from './dto/extend-session.dto.js';
-import { OperatorAuthGuard } from '../common/auth/operator-auth.guard.js';
+import { OperatorAuthGuard } from '../../common/auth/operator-auth.guard.js';
 import { SessionStateDto } from '../realtime/protocol.js';
 
 @Controller()

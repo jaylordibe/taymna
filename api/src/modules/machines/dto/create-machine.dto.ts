@@ -1,5 +1,5 @@
 import { IsEnum, IsString, Length } from 'class-validator';
-import { $Enums } from '../../generated/prisma/client.js';
+import { $Enums } from '../../../generated/prisma/client.js';
 
 export class CreateMachineDto {
   @IsString()

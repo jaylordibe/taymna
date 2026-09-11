@@ -2,9 +2,9 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@n
 import { Throttle } from '@nestjs/throttler';
 import { AuthService, LoginResult } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
-import { OperatorAuthGuard } from '../common/auth/operator-auth.guard.js';
-import { CurrentOperator } from '../common/auth/current-operator.decorator.js';
-import type { OperatorJwtPayload } from '../common/auth/jwt-payload.js';
+import { OperatorAuthGuard } from '../../common/auth/operator-auth.guard.js';
+import { CurrentOperator } from '../../common/auth/current-operator.decorator.js';
+import type { OperatorJwtPayload } from '../../common/auth/jwt-payload.js';
 
 @Controller('auth')
 export class AuthController {

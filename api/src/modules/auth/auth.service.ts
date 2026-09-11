@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { AppConfigService } from '../config/app-config.service.js';
-import { OperatorJwtPayload } from '../common/auth/jwt-payload.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { AppConfigService } from '../../config/app-config.service.js';
+import { OperatorJwtPayload } from '../../common/auth/jwt-payload.js';
 
 export interface LoginResult {
   token: string;

@@ -5,11 +5,11 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AppConfigModule } from './config/app-config.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
-import { AuthModule } from './auth/auth.module.js';
-import { MachinesModule } from './machines/machines.module.js';
-import { SessionsModule } from './sessions/sessions.module.js';
-import { RealtimeGatewayModule } from './realtime/realtime-gateway.module.js';
-import { HealthModule } from './health/health.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { MachinesModule } from './modules/machines/machines.module.js';
+import { SessionsModule } from './modules/sessions/sessions.module.js';
+import { RealtimeGatewayModule } from './modules/realtime/realtime-gateway.module.js';
+import { HealthModule } from './modules/health/health.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 
 @Module({

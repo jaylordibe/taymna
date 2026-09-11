@@ -14,7 +14,7 @@ import { Throttle } from '@nestjs/throttler';
 import { MachinesService, EnrollResult } from './machines.service.js';
 import { CreateMachineDto } from './dto/create-machine.dto.js';
 import { EnrollDto } from './dto/enroll.dto.js';
-import { OperatorAuthGuard } from '../common/auth/operator-auth.guard.js';
+import { OperatorAuthGuard } from '../../common/auth/operator-auth.guard.js';
 import { MachineDto } from './machine.dto.js';
 
 @Controller('machines')

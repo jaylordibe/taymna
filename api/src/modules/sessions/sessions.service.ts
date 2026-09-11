@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import { ConnectionRegistryService } from '../realtime/connection-registry.service.js';
-import { Prisma, Session, $Enums } from '../generated/prisma/client.js';
+import { Prisma, Session, $Enums } from '../../generated/prisma/client.js';
 import { SessionStateDto } from '../realtime/protocol.js';
 
 @Injectable()

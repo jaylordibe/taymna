@@ -1,4 +1,4 @@
-import { $Enums } from '../generated/prisma/client.js';
+import { $Enums } from '../../generated/prisma/client.js';
 import { SessionStateDto } from '../realtime/protocol.js';
 
 export interface MachineDto {

@@ -1,11 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { isUUID } from 'class-validator';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import { ConnectionRegistryService } from '../realtime/connection-registry.service.js';
-import { AppConfigService } from '../config/app-config.service.js';
-import { generateSecret, hashSecret, verifySecret } from '../common/security/secret.util.js';
-import { Machine, $Enums } from '../generated/prisma/client.js';
+import { AppConfigService } from '../../config/app-config.service.js';
+import { generateSecret, hashSecret, verifySecret } from '../../common/security/secret.util.js';
+import { Machine, $Enums } from '../../generated/prisma/client.js';
 import { MachineDto } from './machine.dto.js';
 
 const ENROLLMENT_TOKEN_TTL_MS = 15 * 60_000;

@@ -1,4 +1,4 @@
-import { $Enums } from '../generated/prisma/client.js';
+import { $Enums } from '../../generated/prisma/client.js';
 
 /**
  * The full WebSocket protocol, documented again for humans in

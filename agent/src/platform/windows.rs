@@ -34,7 +34,7 @@
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 
-use tracing::{error, warn};
+use tracing::warn;
 use windows::core::{Result as WinResult, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID};
 use windows::Win32::Security::{
@@ -137,9 +137,9 @@ unsafe fn run_lock_workstation_as_user(token: HANDLE) -> WinResult<()> {
     let mut process_information = PROCESS_INFORMATION::default();
 
     CreateProcessAsUserW(
-        Some(token),
+        token,
         PWSTR::null(),
-        Some(PWSTR(command_line.as_mut_ptr())),
+        PWSTR(command_line.as_mut_ptr()),
         None,
         None,
         false,

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { $Enums } from '../generated/prisma/client.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { $Enums } from '../../generated/prisma/client.js';
 
 /**
  * Sweeps ACTIVE sessions whose expiresAt has passed to EXPIRED. This is the
