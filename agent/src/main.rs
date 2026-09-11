@@ -43,14 +43,9 @@ enum Command {
 // any tokio runtime exists (see windows_service_support below), so main()
 // stays plain and only starts a runtime once it knows which path it's on.
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
-
     match Cli::parse().command.unwrap_or(Command::Run) {
         Command::Enroll { server, token } => {
+            init_stdout_tracing();
             let store = Store::new(None)?;
             tokio::runtime::Runtime::new()?.block_on(enroll(&store, server, token))
         }
@@ -62,15 +57,28 @@ fn main() -> anyhow::Result<()> {
                 // doesn't return until the service has fully stopped. Fails
                 // immediately otherwise -- interactively, `cargo run`,
                 // double-click -- so we fall through to running in the
-                // foreground below, keeping that usage unchanged.
+                // foreground below, keeping that usage unchanged. Tracing
+                // is deliberately not initialized until we're past this
+                // branch: the service path needs a file writer (no console
+                // is attached to a service), which windows_service_support
+                // sets up itself once it's certain that's the path taken.
                 if windows_service_support::try_run_as_service().is_ok() {
                     return Ok(());
                 }
             }
+            init_stdout_tracing();
             let store = Store::new(None)?;
             tokio::runtime::Runtime::new()?.block_on(run(store, None))
         }
     }
+}
+
+fn init_stdout_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
 }
 
 #[cfg(windows)]
@@ -99,6 +107,28 @@ mod windows_service_support {
         service_dispatcher::start(SERVICE_NAME, ffi_service_main)
     }
 
+    /// Same resolution `Store` uses (TAYMNA_STATE_DIR, or the OS-appropriate
+    /// data dir) so the log file lands next to state.json -- one place to
+    /// look, not two.
+    fn init_file_tracing() {
+        let dir = crate::storage::default_state_dir();
+        if std::fs::create_dir_all(&dir).is_err() {
+            return; // nowhere to log to; better to keep running than panic
+        }
+        let file_appender = tracing_appender::rolling::never(&dir, "agent.log");
+        // A logging setup failure shouldn't take the whole service down --
+        // the agent's actual job (enforcing the session) doesn't depend on
+        // it, so this is intentionally swallowed rather than `?`/unwrap'd.
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                super::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| super::EnvFilter::new("info")),
+            )
+            .with_writer(file_appender)
+            .with_ansi(false)
+            .try_init();
+    }
+
     define_windows_service!(ffi_service_main, service_main);
 
     fn service_main(_arguments: Vec<OsString>) {
@@ -108,6 +138,8 @@ mod windows_service_support {
     }
 
     fn run_service() -> windows_service::Result<()> {
+        init_file_tracing();
+
         let (stop_tx, stop_rx) = oneshot::channel();
         let mut stop_tx = Some(stop_tx);
 

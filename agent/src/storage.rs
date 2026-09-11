@@ -92,7 +92,7 @@ impl Store {
     }
 }
 
-fn default_state_dir() -> PathBuf {
+pub fn default_state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("TAYMNA_STATE_DIR") {
         return PathBuf::from(dir);
     }

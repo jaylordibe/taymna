@@ -37,6 +37,10 @@ windows = { version = "0.58", features = [
 # and friends) that `sc.exe start` requires -- without this, SCM waits for a
 # "running" status the process never sends and start fails with error 1053.
 windows-service = "0.8"
+# A Windows service has no attached console, so tracing_subscriber's default
+# stdout writer goes nowhere -- this gives the service path a log file to
+# write to instead, so a failure is diagnosable without a debugger attached.
+tracing-appender = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

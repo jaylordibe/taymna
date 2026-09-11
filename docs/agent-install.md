@@ -60,24 +60,48 @@ sudo systemctl enable --now taymna-agent
 
 ## Windows (Windows Service)
 
-Register the binary as a service (LocalSystem, required for the
+Run every command below in an **elevated** PowerShell ("Run as
+administrator" -- the window title must say "Administrator: Windows
+PowerShell"). A non-elevated shell fails `sc.exe create`/`start` with
+"Access is denied" (error 5).
+
+Register the binary as a service (LocalSystem, required for both the
 `WTSQueryUserToken`/`CreateProcessAsUserW` technique in
-[enforcement.md](enforcement.md)):
+[enforcement.md](enforcement.md) and for `sc.exe`/SCM to manage it at all):
 
 ```powershell
+mkdir "C:\Program Files\Taymna" -Force
+Copy-Item ".\taymna-agent.exe" "C:\Program Files\Taymna\taymna-agent.exe"
+
 sc.exe create TaymnaAgent binPath= "C:\Program Files\Taymna\taymna-agent.exe run" start= auto
 sc.exe failure TaymnaAgent reset= 86400 actions= restart/5000/restart/5000/restart/5000
 ```
 
-Enroll once before starting the service (run as Administrator so it writes
-to the same state directory the service will use, e.g. via
-`TAYMNA_STATE_DIR` set as a system environment variable pointing at
-`C:\ProgramData\Taymna`):
+The service (LocalSystem) and an interactive `enroll` run (your own admin
+account) are different Windows accounts with different profile
+directories, so they need `TAYMNA_STATE_DIR` to agree on a shared location
+-- **don't** set it with `[Environment]::SetEnvironmentVariable(...,
+"Machine")`: that only updates the registry, and a Windows service inherits
+its environment from `services.exe`'s own process environment, captured at
+boot -- it will *not* see a machine variable set after boot without a
+reboot. Set it directly on the service's own registry key instead, which
+SCM does apply immediately, no reboot needed:
 
 ```powershell
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\TaymnaAgent" `
+  -Name "Environment" -PropertyType MultiString `
+  -Value @("TAYMNA_STATE_DIR=C:\ProgramData\Taymna") -Force
+
+$env:TAYMNA_STATE_DIR = "C:\ProgramData\Taymna"   # for this enroll command only
 "C:\Program Files\Taymna\taymna-agent.exe" enroll --server https://taymna.example.com --token <token>
+
 sc.exe start TaymnaAgent
 ```
+
+A Windows service has no attached console, so on this platform only, the
+agent logs to `<TAYMNA_STATE_DIR>\agent.log` (e.g.
+`C:\ProgramData\Taymna\agent.log`) instead of stdout -- check there first
+if the service starts but the machine never shows as online.
 
 ## macOS (launchd)
 
