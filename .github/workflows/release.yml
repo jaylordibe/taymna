@@ -5,6 +5,11 @@ name: release agent
 # download link (unlike this repo's `agent` CI workflow, whose artifacts
 # expire after 14 days) so a machine can be set up without cloning the repo
 # or installing a Rust toolchain. See docs/agent-install.md.
+#
+# The tag is the ONLY place a release version is written. agent/Cargo.toml
+# stays at a dev placeholder and the real version is stamped in below from
+# the tag, so `taymna-agent --version` always matches the release it came
+# from and there is no second copy to remember to bump.
 
 on:
   push:
@@ -47,6 +52,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
+      - name: Stamp the version from the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # Only the [package] version is written at the start of a line;
+          # dependency versions all live inside inline tables. No /g, so
+          # this replaces the first match and nothing else.
+          perl -0pi -e "s/^version = .*/version = \"${version}\"/m" Cargo.toml
+          # Never ship a binary that silently kept the placeholder.
+          grep -qxF "version = \"${version}\"" Cargo.toml \
+            || { echo "::error::could not stamp version ${version} into agent/Cargo.toml"; exit 1; }
+          echo "Building taymna-agent ${version}"
       - run: cargo build --release --target ${{ matrix.target }}
       - name: Package binary
         shell: bash

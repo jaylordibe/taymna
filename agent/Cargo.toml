@@ -1,6 +1,11 @@
 [package]
 name = "taymna-agent"
-version = "0.1.0"
+# Placeholder. The real version is stamped in from the git tag by
+# .github/workflows/release.yml, so a released binary's `--version` always
+# matches the release it came from and there is no second copy of the
+# version to keep in sync. A locally built binary reporting 0.0.0-dev is
+# correct: it did not come from a release.
+version = "0.0.0-dev"
 edition = "2021"
 description = "Taymna machine agent: enrolls a computer, holds a persistent connection to the Taymna server, and enforces session expiry locally."
 license = "Apache-2.0"

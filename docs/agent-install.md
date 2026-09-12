@@ -73,6 +73,40 @@ The macOS step that can't be scripted: after installing, grant the agent
 Accessibility permission (System Settings -> Privacy & Security ->
 Accessibility) or locking will fail until you do.
 
+## Versions, upgrades and rollback
+
+**The git tag is the version.** Pushing `v0.2.0` builds the agent for all
+three platforms and publishes a GitHub Release under that tag; the version
+is stamped into the binary from the tag itself, so there is no second copy
+in the repository to remember to bump. `agent/Cargo.toml` deliberately
+stays at `0.0.0-dev`, which is exactly what a locally built binary should
+report: it didn't come from a release.
+
+That makes `--version` a real answer rather than a constant:
+
+```bash
+taymna-agent --version          # e.g. "taymna-agent 0.2.0"
+```
+
+Run it on a machine after upgrading to confirm the new binary actually
+landed. On Windows: `& 'C:\Program Files\Taymna\taymna-agent.exe' --version`.
+
+To **upgrade**, re-run the installer — it keeps the existing enrollment, so
+no token is needed. To **roll back** (or pin), name the release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.sh | sudo bash -s -- --version v0.1.3
+```
+
+```powershell
+$env:TAYMNA_VERSION = 'v0.1.3'; irm https://raw.githubusercontent.com/jaylordibe/taymna/main/install/install.ps1 | iex
+```
+
+Releases are never deleted, which is what makes that rollback work: every
+tag stays a working download URL for machines already pinned to it, and
+`releases/latest/download/...` — the URL both installers use by default —
+always points at the newest one.
+
 ## 1. Get the binary
 
 Download the file for the target OS from the
