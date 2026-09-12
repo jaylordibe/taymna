@@ -49,7 +49,7 @@ server is reachable at (see [self-hosting.md](self-hosting.md)).
 | Component | Stack | Responsibility |
 |---|---|---|
 | `api/` | NestJS 12, Prisma 7 (driver adapters, no Rust query engine), Postgres | Source of truth for machines/sessions/operators, REST API, WebSocket gateway, the one background job (expiry sweep) |
-| `web/` | Next.js 16, React 19, Tailwind v4, React Query | Operator dashboard, installable PWA, mobile-first |
+| `web/` | Next.js 16, React 19, Tailwind v4, React Query | Operator dashboard and usage report, installable PWA, mobile-first |
 | `agent/` | Rust, tokio, tokio-tungstenite | Runs on the controlled machine: enrolls once, holds the WS connection, enforces expiry locally even when offline, and warns the user before it does |
 
 ## Repository layout

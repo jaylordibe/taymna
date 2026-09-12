@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getStoredToken } from "@/lib/auth-storage";
@@ -33,9 +34,14 @@ export default function DashboardPage() {
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-ink">Taymna</h1>
-        <button type="button" onClick={logout} className="text-sm text-ink-soft hover:text-ink">
-          Sign out
-        </button>
+        <nav className="flex items-center gap-4">
+          <Link href="/reports" className="text-sm text-ink-soft hover:text-ink">
+            Usage
+          </Link>
+          <button type="button" onClick={logout} className="text-sm text-ink-soft hover:text-ink">
+            Sign out
+          </button>
+        </nav>
       </header>
 
       {machinesQuery.isLoading && <p className="text-sm text-ink-soft">Loading machines…</p>}

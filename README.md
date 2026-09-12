@@ -35,6 +35,9 @@ locked and stays locked.
 
 - **One dashboard, from anywhere** — an installable PWA (phone home screen,
   full-screen) with live countdowns pushed over WebSockets; no polling.
+- **Hours per machine, per day or range** — a usage report of the time each
+  computer was actually usable (a session ended early counts only up to when
+  it ended), exportable as CSV.
 - **Sessions that actually expire** — the agent stores absolute deadlines,
   guards against clock rollback with a monotonic clock, and locks the
   machine on time **even if the server is unreachable**. Restarting the
@@ -166,6 +169,7 @@ Full write-up and known limitations: [docs/security.md](docs/security.md).
 | [Architecture](docs/architecture.md) | The three pieces and why there are only three |
 | [Enforcement](docs/enforcement.md) | Per-OS lock mechanism, guarantees, limitations, verification status |
 | [Expiry warnings](docs/expiry-warnings.md) | The 10/5/1-minute and final warnings, per-OS behaviour and limits |
+| [Usage reports](docs/usage-reports.md) | Hours per machine for a date or range, and what "used" counts as |
 | [Offline expiry](docs/offline-expiry.md) | How a session ends on time without a server |
 | [Enrollment](docs/enrollment.md) | How a machine gets its credential |
 | [Protocol](docs/protocol.md) | Every WebSocket message |

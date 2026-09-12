@@ -1,5 +1,5 @@
 import { getStoredToken } from "./auth-storage";
-import type { Machine, Operator, Platform, SessionState } from "./types";
+import type { Machine, Operator, Platform, SessionState, UsageReport } from "./types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -76,4 +76,9 @@ export const api = {
 
   endSession: (sessionId: string) =>
     request<SessionState>(`/sessions/${sessionId}/end`, { method: "POST" }),
+
+  usageReport: (from: string, to: string) =>
+    request<UsageReport>(
+      `/reports/usage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
 };

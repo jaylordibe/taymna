@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { MachinesModule } from './modules/machines/machines.module.js';
 import { SessionsModule } from './modules/sessions/sessions.module.js';
+import { ReportsModule } from './modules/reports/reports.module.js';
 import { RealtimeGatewayModule } from './modules/realtime/realtime-gateway.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
@@ -36,6 +37,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
     AuthModule,
     MachinesModule,
     SessionsModule,
+    ReportsModule,
     RealtimeGatewayModule,
     HealthModule,
   ],
