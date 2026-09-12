@@ -207,7 +207,11 @@ signing in; starting a session from the dashboard makes it usable.
 
 Run these as a user with `sudo`. Root is required for `loginctl
 lock-sessions` to affect other users' sessions -- see
-[enforcement.md](enforcement.md).
+[enforcement.md](enforcement.md). For expiry warnings to reach the desktop,
+`notify-send` (the `libnotify-bin` / `libnotify` package) must be installed
+alongside a running notification daemon; without it the agent logs a warning
+each time and still locks on time -- see
+[expiry-warnings.md](expiry-warnings.md).
 
 **Install the binary:**
 

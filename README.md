@@ -42,6 +42,10 @@ locked and stays locked.
 - **Enforcement, not decoration** — a real OS lock via the platform's own
   mechanism (Windows session lock, `loginctl`, macOS lock), re-asserted
   every ~2 seconds. Not a full-screen web page someone can Alt-Tab past.
+- **Nobody gets locked out mid-sentence** — native warnings at 10, 5 and 1
+  minute and a final countdown, decided by the agent from the same deadline
+  it enforces, so they work offline too. Warning, not negotiation: there is
+  no snooze.
 - **One-command install** — `irm … | iex` on Windows, `curl … | sudo bash`
   on Linux/macOS: downloads, registers the service, enrolls, starts, and
   verifies the agent connected. Re-running repairs a broken install.
@@ -117,9 +121,13 @@ other apps — is covered step by step in
 
 The agent never receives commands — only *facts* about the current session
 (`expiresAt`, status). It decides locally, every 2 seconds, whether the
-machine should be usable, which is why a dead network or a stopped server
-can't extend anyone's time. Details: [docs/architecture.md](docs/architecture.md),
-[docs/protocol.md](docs/protocol.md), [docs/offline-expiry.md](docs/offline-expiry.md).
+machine should be usable, and — from the same deadline and the same
+clock — when to warn the person using it that time is running out. That is
+why a dead network or a stopped server can't extend anyone's time, and why
+the warnings still arrive when the server is unreachable. Details:
+[docs/architecture.md](docs/architecture.md), [docs/protocol.md](docs/protocol.md),
+[docs/offline-expiry.md](docs/offline-expiry.md),
+[docs/expiry-warnings.md](docs/expiry-warnings.md).
 
 ## Platform support
 
@@ -157,6 +165,7 @@ Full write-up and known limitations: [docs/security.md](docs/security.md).
 | [Agent installation](docs/agent-install.md) | The one-line installers, what they do, manual steps, troubleshooting |
 | [Architecture](docs/architecture.md) | The three pieces and why there are only three |
 | [Enforcement](docs/enforcement.md) | Per-OS lock mechanism, guarantees, limitations, verification status |
+| [Expiry warnings](docs/expiry-warnings.md) | The 10/5/1-minute and final warnings, per-OS behaviour and limits |
 | [Offline expiry](docs/offline-expiry.md) | How a session ends on time without a server |
 | [Enrollment](docs/enrollment.md) | How a machine gets its credential |
 | [Protocol](docs/protocol.md) | Every WebSocket message |

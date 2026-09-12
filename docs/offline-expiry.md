@@ -73,6 +73,15 @@ mark and continues extrapolating from there, rather than resetting to
   interval) before the next check re-derives a fresh value -- not a
   meaningful window in practice.
 
+## Warnings ride on the same numbers
+
+The expiry warnings the user sees (10 minutes, 5, 1, and a final countdown)
+are computed from `expiresAt` and the same `ClockGuard::now()` reading, on
+the same tick, in the same process. There is no second timing authority and
+nothing is scheduled on the server, so the warnings keep working through an
+outage exactly as expiry does — and a warning that fails to appear cannot
+affect any of the above. See [expiry-warnings.md](expiry-warnings.md).
+
 ## Reconciliation
 
 The agent never asks the server "what's my session state" beyond its normal

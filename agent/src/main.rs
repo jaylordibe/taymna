@@ -2,9 +2,10 @@ mod client;
 mod platform;
 mod session;
 mod storage;
+mod warning;
 
 use clap::{Parser, Subcommand};
-use platform::Enforcement;
+use platform::{Enforcement, UserNotifier};
 use session::Desired;
 use storage::{Credentials, Store};
 use tokio::sync::mpsc;
@@ -311,6 +312,26 @@ async fn run(
     let mut clock = storage::ClockGuard::new(state.trusted_high_water_mark);
     let mut currently_blocked = true; // start pessimistic: assume blocked until proven otherwise
 
+    // Expiry warnings are decided in the tick below and *delivered* here,
+    // on a thread of their own. Putting a channel in between is what makes
+    // "a warning failure can never delay locking" structural rather than
+    // careful: showing a notification means launching a process in somebody
+    // else's desktop session, which can block for seconds, fail, or panic,
+    // and none of that can reach the loop that enforces expiry. If this
+    // thread dies, sends simply stop being delivered. See
+    // docs/expiry-warnings.md.
+    let (warnings_tx, warnings_rx) = std::sync::mpsc::channel::<warning::WarningEffect>();
+    let warnings_thread = std::thread::spawn(move || {
+        let notifier = platform::notifier();
+        for effect in warnings_rx {
+            warning::apply(&notifier, &effect);
+        }
+        // The channel closing means the agent is stopping: never leave a
+        // countdown on screen for a session nothing is watching any more.
+        notifier.dismiss_final_warning();
+    });
+    let mut warnings = warning::ExpiryWarnings::new();
+
     let (events_tx, mut events_rx) = mpsc::unbounded_channel();
     tokio::spawn(client::run(credentials, events_tx));
 
@@ -322,7 +343,7 @@ async fn run(
             _ = &mut shutdown => {
                 info!("shutting down");
                 store.save(&state)?;
-                return Ok(());
+                break;
             }
             event = events_rx.recv() => {
                 match event {
@@ -367,10 +388,27 @@ async fn run(
                     Desired::Allowed => {}
                 }
 
+                // Only now, with enforcement already applied, is the user
+                // told anything -- from the same session snapshot and the
+                // same trusted clock reading the decision above used, so
+                // there is no second timing authority and nothing to keep
+                // in sync.
+                for effect in warnings.reconcile(state.session.as_ref(), trusted_now) {
+                    // A handful of lines per session, and the only record
+                    // that the user was (meant to be) warned -- worth having
+                    // when someone reports "it locked with no warning".
+                    info!(?effect, "expiry warning");
+                    let _ = warnings_tx.send(effect);
+                }
+
                 store.save(&state)?;
             }
         }
     }
+
+    drop(warnings_tx);
+    let _ = warnings_thread.join();
+    Ok(())
 }
 
 /// Waits for whichever comes first: Ctrl+C/SIGTERM, or (only when running as

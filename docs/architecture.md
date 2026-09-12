@@ -50,7 +50,7 @@ server is reachable at (see [self-hosting.md](self-hosting.md)).
 |---|---|---|
 | `api/` | NestJS 12, Prisma 7 (driver adapters, no Rust query engine), Postgres | Source of truth for machines/sessions/operators, REST API, WebSocket gateway, the one background job (expiry sweep) |
 | `web/` | Next.js 16, React 19, Tailwind v4, React Query | Operator dashboard, installable PWA, mobile-first |
-| `agent/` | Rust, tokio, tokio-tungstenite | Runs on the controlled machine: enrolls once, holds the WS connection, enforces expiry locally even when offline |
+| `agent/` | Rust, tokio, tokio-tungstenite | Runs on the controlled machine: enrolls once, holds the WS connection, enforces expiry locally even when offline, and warns the user before it does |
 
 ## Repository layout
 
@@ -83,9 +83,11 @@ Operator                         (single admin account for V1)
 `remaining_time` is never stored -- it's always `expiresAt - now`, computed
 client-side by both the web dashboard and the agent. See
 [offline-expiry.md](offline-expiry.md) for how the agent computes "now"
-without trusting the OS clock unconditionally, and
+without trusting the OS clock unconditionally,
 [protocol.md](protocol.md) for the exact WebSocket messages that carry
-`expiresAt` to the agent.
+`expiresAt` to the agent, and [expiry-warnings.md](expiry-warnings.md) for
+how the agent turns that same subtraction into the warnings a user sees
+before the machine locks -- with nothing scheduled server-side.
 
 ## What Taymna deliberately does not have
 

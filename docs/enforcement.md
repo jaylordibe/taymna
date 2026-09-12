@@ -167,6 +167,17 @@ tick, once Accessibility permission (below) is granted.
   development environment; it's validated by the `macos-latest` CI build
   leg but not device-verified for actual lock behavior.
 
+## Warning before the lock
+
+From the same `disable_usage()`/`enable_usage()` boundary, each platform
+also knows how to put a *notification* in front of the interactive user, so
+a session doesn't end without notice: 10, 5 and 1 minute out, plus a
+prominent final warning. It is a separate trait (`UserNotifier`) from the
+one above on purpose — that one is the security-critical half, this one is
+cosmetic, and a failure to deliver a warning can never delay or prevent a
+lock. Mechanisms, per-platform limits and verification status:
+[expiry-warnings.md](expiry-warnings.md).
+
 ## Why "lock the screen" and not something stronger, for V1
 
 All three platforms share the same two honest limitations: locking doesn't

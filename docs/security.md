@@ -67,6 +67,16 @@ message shapes (`session_state`, `heartbeat_ack`, `error`), none of which
 carry a command, shell string, or file path. See
 [protocol.md](protocol.md) for the full message catalogue.
 
+The agent does invoke OS processes -- to lock the machine, and to show
+expiry warnings -- but never with data that came off the wire. Every
+string handed to a process is a compile-time constant in the agent or is
+built from an integer the agent computed from timestamps; arguments are
+passed as separate argv entries (or, on Windows, as a fixed command line
+with a base64 payload), never through a shell. The one piece of
+server-supplied data the warning path touches at all, the session id, is
+used solely for an in-memory equality check. See
+[expiry-warnings.md](expiry-warnings.md).
+
 ## Logging
 
 Structured logging via `nestjs-pino`, with `Authorization` headers and
