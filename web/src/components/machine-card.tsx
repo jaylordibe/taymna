@@ -170,6 +170,11 @@ export function MachineCard({ machine }: { machine: Machine }) {
 
         <p className="mt-1 text-sm text-ink-soft">
           {machine.online ? "Online" : lastSeenLabel(machine.lastSeenAt, now)}
+          {/* Diagnostic, not headline: it answers "did the upgrade land on
+              this one?" without competing with the session state above. */}
+          {machine.agentVersion && (
+            <span className="tabular text-ink-soft"> · agent {machine.agentVersion}</span>
+          )}
         </p>
 
         {enrollCommand ? (

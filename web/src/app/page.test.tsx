@@ -64,6 +64,7 @@ describe("DashboardPage", () => {
         platform: "WINDOWS",
         online: true,
         lastSeenAt: new Date().toISOString(),
+        agentVersion: "0.2.0",
         activeSession: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

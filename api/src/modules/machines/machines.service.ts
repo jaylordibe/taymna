@@ -10,6 +10,23 @@ import { MachineDto } from './machine.dto.js';
 
 const ENROLLMENT_TOKEN_TTL_MS = 15 * 60_000;
 
+/** Matches the column width in schema.prisma. */
+const MAX_AGENT_VERSION_LENGTH = 32;
+
+/**
+ * The reported agent version is the only free text a machine can put into
+ * the database, so it is narrowed to what a version string can legitimately
+ * contain and capped at the column width. Anything else is dropped rather
+ * than truncated: a value that doesn't look like a version isn't one, and
+ * storing half of it would only make the dashboard lie more confidently.
+ */
+export function sanitizeAgentVersion(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_AGENT_VERSION_LENGTH) return null;
+  return /^[A-Za-z0-9][A-Za-z0-9.+_-]*$/.test(trimmed) ? trimmed : null;
+}
+
 export interface IssuedEnrollmentToken {
   token: string;
   expiresAt: Date;
@@ -144,16 +161,20 @@ export class MachinesService {
     return verifySecret(machine.credentialHash, secret);
   }
 
-  async recordHeartbeat(machineId: string): Promise<void> {
+  async recordHeartbeat(machineId: string, agentVersion?: unknown): Promise<void> {
+    const reported = sanitizeAgentVersion(agentVersion);
     const machine = await this.prisma.machine.update({
       where: { id: machineId },
-      data: { lastSeenAt: new Date() },
+      // Only written when the agent actually reported one, so a downgrade to
+      // an agent too old to report doesn't blank out what we already knew.
+      data: { lastSeenAt: new Date(), ...(reported ? { agentVersion: reported } : {}) },
     });
     this.registry.broadcastToOperators({
       type: 'machine_updated',
       machineId,
       online: true,
       lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
+      agentVersion: machine.agentVersion,
     });
   }
 
@@ -171,6 +192,7 @@ export class MachinesService {
       platform: machine.platform,
       online: this.isOnline(machine.lastSeenAt),
       lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
+      agentVersion: machine.agentVersion,
       activeSession: activeSession ? SessionsService.toDto(activeSession) : null,
       createdAt: machine.createdAt.toISOString(),
       updatedAt: machine.updatedAt.toISOString(),

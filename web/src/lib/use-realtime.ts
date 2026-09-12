@@ -7,7 +7,13 @@ import type { Machine, SessionState } from "./types";
 import { machinesQueryKey } from "./machines-query";
 
 type ServerToOperatorMessage =
-  | { type: "machine_updated"; machineId: string; online: boolean; lastSeenAt: string | null }
+  | {
+      type: "machine_updated";
+      machineId: string;
+      online: boolean;
+      lastSeenAt: string | null;
+      agentVersion: string | null;
+    }
   | { type: "session_updated"; machineId: string; session: SessionState | null }
   | { type: "machine_removed"; machineId: string };
 
@@ -59,7 +65,12 @@ export function useRealtime(token: string | null): void {
           if (message.type === "machine_updated") {
             return current.map((m) =>
               m.id === message.machineId
-                ? { ...m, online: message.online, lastSeenAt: message.lastSeenAt }
+                ? {
+                    ...m,
+                    online: message.online,
+                    lastSeenAt: message.lastSeenAt,
+                    agentVersion: message.agentVersion,
+                  }
                 : m,
             );
           }

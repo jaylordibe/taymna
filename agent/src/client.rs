@@ -35,8 +35,17 @@ enum AgentToServer {
     Heartbeat {
         #[serde(rename = "atMs")]
         at_ms: i64,
+        /// This build's version, so the dashboard can show which agent each
+        /// machine is running instead of an operator checking `--version` by
+        /// hand on every one. A compile-time constant -- the agent reports
+        /// what it *is*, and has nothing else to say.
+        version: &'static str,
     },
 }
+
+/// Stamped from the release tag at build time (see the release workflow);
+/// a locally built binary reports the `0.0.0-dev` placeholder.
+const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -105,24 +114,40 @@ async fn connect_and_serve(
     let (mut write, mut read) = stream.split();
 
     let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
-    heartbeat_interval.tick().await; // first tick fires immediately; skip it, we send on connect below
+    heartbeat_interval.tick().await; // first tick fires immediately; skip it, we greet below instead
 
-    let hello = AgentToServer::Heartbeat {
-        at_ms: Utc::now().timestamp_millis(),
-    };
-    write
-        .send(Message::text(serde_json::to_string(&hello)?))
-        .await?;
+    // The first heartbeat waits for the server's first message instead of
+    // going out the instant the socket opens. The server attaches its
+    // message listener a tick after the upgrade and buffers nothing, so a
+    // heartbeat sent immediately is silently dropped. That used to cost
+    // nothing -- the server records a heartbeat on connect anyway -- but the
+    // heartbeat now also carries this agent's version, which would otherwise
+    // not reach the dashboard for a full interval after every reconnect.
+    // `session_state` is pushed on every connect, so this always fires.
+    let mut greeted = false;
 
     loop {
         tokio::select! {
             _ = heartbeat_interval.tick() => {
-                let heartbeat = AgentToServer::Heartbeat { at_ms: Utc::now().timestamp_millis() };
+                let heartbeat = AgentToServer::Heartbeat {
+                    at_ms: Utc::now().timestamp_millis(),
+                    version: AGENT_VERSION,
+                };
                 write.send(Message::text(serde_json::to_string(&heartbeat)?)).await?;
             }
             msg = read.next() => {
                 match msg {
-                    Some(Ok(Message::Text(text))) => handle_message(&text, events_tx),
+                    Some(Ok(Message::Text(text))) => {
+                        handle_message(&text, events_tx);
+                        if !greeted {
+                            greeted = true;
+                            let hello = AgentToServer::Heartbeat {
+                                at_ms: Utc::now().timestamp_millis(),
+                                version: AGENT_VERSION,
+                            };
+                            write.send(Message::text(serde_json::to_string(&hello)?)).await?;
+                        }
+                    }
                     Some(Ok(Message::Close(frame))) => {
                         warn!(?frame, "server closed the connection");
                         return Ok(());

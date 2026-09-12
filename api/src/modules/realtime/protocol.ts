@@ -19,7 +19,13 @@ export type ServerToAgentMessage =
   | { type: 'heartbeat_ack'; serverTime: string }
   | { type: 'error'; code: string; message: string };
 
-export type AgentToServerMessage = { type: 'heartbeat'; atMs: number };
+/**
+ * `version` is optional and always will be: agents upgrade one machine at a
+ * time, so a server must keep working with one that predates the field.
+ * It is untrusted text from the machine's credential holder -- validated
+ * and capped by `sanitizeAgentVersion` before it is stored or shown.
+ */
+export type AgentToServerMessage = { type: 'heartbeat'; atMs: number; version?: unknown };
 
 export type ServerToOperatorMessage =
   | {
@@ -27,6 +33,7 @@ export type ServerToOperatorMessage =
       machineId: string;
       online: boolean;
       lastSeenAt: string | null;
+      agentVersion: string | null;
     }
   | { type: 'session_updated'; machineId: string; session: SessionStateDto | null }
   | { type: 'machine_removed'; machineId: string };

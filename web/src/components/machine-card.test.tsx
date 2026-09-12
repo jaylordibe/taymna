@@ -33,6 +33,7 @@ const availableMachine: Machine = {
   platform: "WINDOWS",
   online: true,
   lastSeenAt: new Date().toISOString(),
+  agentVersion: "0.2.0",
   activeSession: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -194,5 +195,17 @@ describe("MachineCard", () => {
 
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(renameMachine).not.toHaveBeenCalled();
+  });
+
+  it("shows the agent version the machine reported", async () => {
+    renderWithProviders(<MachineCard machine={availableMachine} />);
+
+    expect(screen.getByText(/agent 0\.2\.0/)).toBeInTheDocument();
+  });
+
+  it("shows no version for an agent too old to report one", async () => {
+    renderWithProviders(<MachineCard machine={{ ...availableMachine, agentVersion: null }} />);
+
+    expect(screen.queryByText(/agent /)).not.toBeInTheDocument();
   });
 });

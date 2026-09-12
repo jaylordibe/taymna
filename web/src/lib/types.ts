@@ -15,6 +15,8 @@ export interface Machine {
   platform: Platform;
   online: boolean;
   lastSeenAt: string | null;
+  /** Version the agent last reported; null for one too old to report it. */
+  agentVersion: string | null;
   activeSession: SessionState | null;
   createdAt: string;
   updatedAt: string;

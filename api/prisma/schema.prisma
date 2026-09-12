@@ -45,6 +45,11 @@ model Machine {
   credentialHash      String?   @map("credential_hash")
   credentialRevokedAt DateTime? @map("credential_revoked_at")
   lastSeenAt          DateTime? @map("last_seen_at")
+  /// Version the agent reported on its last heartbeat; null until a machine
+  /// running an agent new enough to report one connects. Untrusted display
+  /// text from the machine's own credential holder -- validated and capped
+  /// on the way in, never interpreted.
+  agentVersion        String?   @map("agent_version") @db.VarChar(32)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 

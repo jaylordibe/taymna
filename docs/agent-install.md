@@ -91,6 +91,11 @@ taymna-agent --version          # e.g. "taymna-agent 0.2.0"
 Run it on a machine after upgrading to confirm the new binary actually
 landed. On Windows: `& 'C:\Program Files\Taymna\taymna-agent.exe' --version`.
 
+The agent also reports its version on every heartbeat, so from an agent new
+enough to do that, the **dashboard shows it on each machine card** and
+checking a whole fleet is a glance rather than a login to every box. A
+machine running an older agent simply shows no version.
+
 To **upgrade**, re-run the installer — it keeps the existing enrollment, so
 no token is needed. To **roll back** (or pin), name the release:
 

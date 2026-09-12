@@ -67,6 +67,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     this.agentIdBySocket.set(client, machineId);
     this.registry.registerAgent(machineId, client);
+
+    // Attached before anything is awaited, because `ws` buffers nothing: a
+    // message arriving with no listener is dropped outright. This closes the
+    // window across the two awaits below. It cannot close the earlier one --
+    // Nest invokes handleConnection a tick after the upgrade, so an agent
+    // that sends the instant the socket opens can still lose that first
+    // message. Harmless: the agent heartbeats every ~20s, and the connect
+    // path below already records the heartbeat itself. The only thing that
+    // waits is the reported version, until the next heartbeat.
+    client.on('message', (raw: RawData) => {
+      void this.handleAgentMessage(machineId, client, raw);
+    });
+
     await this.machines.recordHeartbeat(machineId);
 
     const activeSession = await this.sessions.getActiveSession(machineId);
@@ -74,10 +87,6 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       type: 'session_state',
       session: activeSession ? SessionsService.toDto(activeSession) : null,
       serverTime: new Date().toISOString(),
-    });
-
-    client.on('message', (raw: RawData) => {
-      void this.handleAgentMessage(machineId, client, raw);
     });
   }
 
@@ -100,7 +109,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     if (message.type === 'heartbeat') {
-      await this.machines.recordHeartbeat(machineId);
+      await this.machines.recordHeartbeat(machineId, message.version);
       this.send(client, { type: 'heartbeat_ack', serverTime: new Date().toISOString() });
     }
   }
