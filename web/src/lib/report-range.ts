@@ -25,7 +25,8 @@ export function toDateInput(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function fromDateInput(value: string): Date {
+/** Midnight local time on a `<input type="date">` value. */
+export function localMidnight(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
 }
@@ -57,8 +58,8 @@ export function presetRange(preset: PresetId, today: Date): { from: string; to: 
  * `to` is pushed to the *next* midnight so the last day is counted in full.
  */
 export function toInstantRange(from: string, to: string): { from: string; to: string } {
-  const start = fromDateInput(from);
-  const endExclusive = fromDateInput(to);
+  const start = localMidnight(from);
+  const endExclusive = localMidnight(to);
   endExclusive.setDate(endExclusive.getDate() + 1);
   return { from: start.toISOString(), to: endExclusive.toISOString() };
 }
@@ -84,7 +85,7 @@ export function decimalHours(seconds: number): string {
 
 export function rangeLabel(from: string, to: string): string {
   const format = (value: string) =>
-    fromDateInput(value).toLocaleDateString(undefined, {
+    localMidnight(value).toLocaleDateString(undefined, {
       day: "numeric",
       month: "short",
       year: "numeric",

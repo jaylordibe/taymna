@@ -52,6 +52,17 @@ export class MachinesService {
     return this.toDto(machine);
   }
 
+  /**
+   * Renames a machine. Deliberately the only mutable field: platform decides
+   * which installer and enforcement path apply, and changing it on a machine
+   * that is already enrolled would describe a computer that doesn't exist.
+   */
+  async rename(id: string, name: string): Promise<MachineDto> {
+    await this.requireMachine(id);
+    const machine = await this.prisma.machine.update({ where: { id }, data: { name } });
+    return this.toDto(machine);
+  }
+
   async issueEnrollmentToken(machineId: string): Promise<IssuedEnrollmentToken> {
     await this.requireMachine(machineId);
     const secret = generateSecret();

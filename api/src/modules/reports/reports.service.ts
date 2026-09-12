@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { MachineUsage, summarizeUsage } from './usage.js';
+import { MachineUsage, ReportedSession, reportSessions, summarizeUsage } from './usage.js';
 
 export interface UsageReport {
   from: string;
   to: string;
   totalUsedSeconds: number;
   machines: MachineUsage[];
+  /** The sessions behind those totals, newest first. */
+  sessions: ReportedSession[];
 }
 
 /** A year and a day: long enough for "the whole of last year", short enough
@@ -50,12 +52,16 @@ export class ReportsService {
     ]);
 
     const rows = summarizeUsage(machines, sessions, from, to, now);
+    const known = new Set(machines.map((machine) => machine.id));
 
     return {
       from: from.toISOString(),
       to: to.toISOString(),
       totalUsedSeconds: rows.reduce((total, row) => total + row.usedSeconds, 0),
       machines: rows,
+      sessions: reportSessions(sessions, from, to, now).filter((session) =>
+        known.has(session.machineId),
+      ),
     };
   }
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { $Enums } from '../../generated/prisma/client.js';
-import { overlapSeconds, summarizeUsage, usableUntil, type UsageSession } from './usage.js';
+import {
+  overlapSeconds,
+  reportSessions,
+  summarizeUsage,
+  usableUntil,
+  type UsageSession,
+} from './usage.js';
 
 const at = (iso: string) => new Date(iso);
 const HOUR = 3600;
@@ -209,5 +215,86 @@ describe('summarizeUsage', () => {
       now,
     );
     expect(rows).toEqual([expect.objectContaining({ machineId: 'm1', usedSeconds: 0 })]);
+  });
+});
+
+describe('reportSessions', () => {
+  const from = at('2026-09-12T00:00:00Z');
+  const to = at('2026-09-13T00:00:00Z');
+  const now = at('2026-09-12T23:00:00Z');
+
+  it('reports a session with its real bounds but window-clipped usage', () => {
+    // Started the evening before; only the part inside the window counts,
+    // but the row still says when it actually began.
+    const [row] = reportSessions(
+      [session({ startedAt: at('2026-09-11T23:00:00Z'), expiresAt: at('2026-09-12T01:00:00Z') })],
+      from,
+      to,
+      now,
+    );
+
+    expect(row).toEqual({
+      machineId: 'm1',
+      startedAt: '2026-09-11T23:00:00.000Z',
+      endedAt: '2026-09-12T01:00:00.000Z',
+      status: $Enums.SessionStatus.EXPIRED,
+      usedSeconds: HOUR,
+    });
+  });
+
+  it('reports the moment an ended session really stopped, not its deadline', () => {
+    const [row] = reportSessions(
+      [
+        session({
+          startedAt: at('2026-09-12T09:00:00Z'),
+          expiresAt: at('2026-09-12T17:00:00Z'),
+          endedAt: at('2026-09-12T09:30:00Z'),
+          status: $Enums.SessionStatus.ENDED,
+        }),
+      ],
+      from,
+      to,
+      now,
+    );
+
+    expect(row.endedAt).toBe('2026-09-12T09:30:00.000Z');
+    expect(row.usedSeconds).toBe(1800);
+  });
+
+  it('drops sessions that contributed nothing to the window', () => {
+    expect(
+      reportSessions(
+        [session({ startedAt: at('2026-09-01T09:00:00Z'), expiresAt: at('2026-09-01T11:00:00Z') })],
+        from,
+        to,
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  it('returns the newest session first', () => {
+    const rows = reportSessions(
+      [
+        session({ startedAt: at('2026-09-12T09:00:00Z'), expiresAt: at('2026-09-12T10:00:00Z') }),
+        session({ startedAt: at('2026-09-12T14:00:00Z'), expiresAt: at('2026-09-12T15:00:00Z') }),
+      ],
+      from,
+      to,
+      now,
+    );
+    expect(rows.map((r) => r.startedAt)).toEqual([
+      '2026-09-12T14:00:00.000Z',
+      '2026-09-12T09:00:00.000Z',
+    ]);
+  });
+
+  it('adds up to the same total the machine summary reports', () => {
+    const sessions = [
+      session({ startedAt: at('2026-09-12T09:00:00Z'), expiresAt: at('2026-09-12T11:00:00Z') }),
+      session({ startedAt: at('2026-09-11T23:00:00Z'), expiresAt: at('2026-09-12T01:00:00Z') }),
+    ];
+    const detail = reportSessions(sessions, from, to, now).reduce((n, r) => n + r.usedSeconds, 0);
+    const summary = summarizeUsage(machines, sessions, from, to, now)[0].usedSeconds;
+    expect(detail).toBe(summary);
   });
 });

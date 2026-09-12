@@ -29,11 +29,24 @@ export interface MachineUsage {
   sessionCount: number;
 }
 
+/**
+ * One session behind a report total. `startedAt`/`endedAt` are the session's
+ * real bounds; `usedSeconds` is clipped to the reported window.
+ */
+export interface ReportedSession {
+  machineId: string;
+  startedAt: string;
+  endedAt: string;
+  status: SessionStatus;
+  usedSeconds: number;
+}
+
 export interface UsageReport {
   from: string;
   to: string;
   totalUsedSeconds: number;
   machines: MachineUsage[];
+  sessions: ReportedSession[];
 }
 
 export interface Operator {

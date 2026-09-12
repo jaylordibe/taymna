@@ -37,7 +37,8 @@ locked and stays locked.
   full-screen) with live countdowns pushed over WebSockets; no polling.
 - **Hours per machine, per day or range** — a usage report of the time each
   computer was actually usable (a session ended early counts only up to when
-  it ended), exportable as CSV.
+  it ended), broken down by day, drillable to the individual sessions, and
+  exportable as CSV.
 - **Sessions that actually expire** — the agent stores absolute deadlines,
   guards against clock rollback with a monotonic clock, and locks the
   machine on time **even if the server is unreachable**. Restarting the

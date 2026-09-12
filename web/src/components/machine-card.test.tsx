@@ -11,6 +11,7 @@ const endSession = vi.fn();
 const issueEnrollmentToken = vi.fn();
 const revokeCredential = vi.fn();
 const deleteMachine = vi.fn();
+const renameMachine = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -20,6 +21,7 @@ vi.mock("@/lib/api", () => ({
     issueEnrollmentToken: (...args: unknown[]) => issueEnrollmentToken(...args),
     revokeCredential: (...args: unknown[]) => revokeCredential(...args),
     deleteMachine: (...args: unknown[]) => deleteMachine(...args),
+    renameMachine: (...args: unknown[]) => renameMachine(...args),
   },
   API_URL: "http://localhost:3000",
   ApiError: class extends Error {},
@@ -57,6 +59,9 @@ describe("MachineCard", () => {
     issueEnrollmentToken.mockClear();
     revokeCredential.mockClear();
     deleteMachine.mockClear();
+    // Reset, not clear: one rename test sets a resolved value that must not
+    // leak into the tests asserting rename was never called.
+    renameMachine.mockReset();
   });
 
   it("shows Available and starts a session with a preset duration", async () => {
@@ -152,5 +157,42 @@ describe("MachineCard", () => {
     expect(revokeCredential).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(revokeCredential).toHaveBeenCalledWith("machine-1"));
+  });
+
+  it("renames a machine inline and keeps everything else in place", async () => {
+    renameMachine.mockResolvedValue({ ...availableMachine, name: "Reception PC" });
+    renderWithProviders(<MachineCard machine={availableMachine} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Rename/ }));
+    const field = screen.getByRole("textbox", { name: "Machine name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Reception PC");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(renameMachine).toHaveBeenCalledWith("machine-1", "Reception PC"),
+    );
+  });
+
+  it("treats an unchanged name as a cancel rather than a write", async () => {
+    renderWithProviders(<MachineCard machine={availableMachine} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Rename/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Machine name" })).not.toBeInTheDocument(),
+    );
+    expect(renameMachine).not.toHaveBeenCalled();
+  });
+
+  it("cannot save an empty name", async () => {
+    renderWithProviders(<MachineCard machine={availableMachine} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Rename/ }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Machine name" }));
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(renameMachine).not.toHaveBeenCalled();
   });
 });

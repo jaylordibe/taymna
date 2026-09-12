@@ -56,6 +56,12 @@ export const api = {
       method: "POST",
     }),
 
+  renameMachine: (machineId: string, name: string) =>
+    request<Machine>(`/machines/${machineId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+
   revokeCredential: (machineId: string) =>
     request<Machine>(`/machines/${machineId}/credential`, { method: "DELETE" }),
 

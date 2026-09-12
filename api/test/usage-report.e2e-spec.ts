@@ -142,6 +142,31 @@ describe('Usage report (e2e, real Postgres)', () => {
     expect(res.body.totalUsedSeconds).toBe(0);
   });
 
+  it('returns the sessions behind the totals, newest first, adding up to them', async () => {
+    const res = await report('2026-09-12T00:00:00Z', '2026-09-13T00:00:00Z').expect(200);
+
+    expect(res.body.sessions).toHaveLength(3);
+    expect(res.body.sessions.map((s: { startedAt: string }) => s.startedAt)).toEqual([
+      '2026-09-12T23:00:00.000Z',
+      '2026-09-12T13:00:00.000Z',
+      '2026-09-12T09:00:00.000Z',
+    ]);
+
+    // The session ended early reports when it really stopped, and counts
+    // only that long.
+    const endedEarly = res.body.sessions.find((s: { status: string }) => s.status === 'ENDED');
+    expect(endedEarly).toMatchObject({
+      endedAt: '2026-09-12T13:30:00.000Z',
+      usedSeconds: 1800,
+    });
+
+    const detailTotal = res.body.sessions.reduce(
+      (total: number, s: { usedSeconds: number }) => total + s.usedSeconds,
+      0,
+    );
+    expect(detailTotal).toBe(res.body.totalUsedSeconds);
+  });
+
   it('rejects a backwards range', async () => {
     await report('2026-09-13T00:00:00Z', '2026-09-12T00:00:00Z').expect(400);
   });

@@ -23,6 +23,20 @@ export interface ReportedMachine {
   platform: $Enums.Platform;
 }
 
+/**
+ * One session as the report shows it. `startedAt`/`endedAt` are the session's
+ * real bounds (so a history list reads honestly, even for a session that
+ * began before the window), while `usedSeconds` is clipped to the window (so
+ * the rows still add up to the machine total).
+ */
+export interface ReportedSession {
+  machineId: string;
+  startedAt: string;
+  endedAt: string;
+  status: $Enums.SessionStatus;
+  usedSeconds: number;
+}
+
 export interface MachineUsage {
   machineId: string;
   name: string;
@@ -97,4 +111,34 @@ export function summarizeUsage(
   return [...rows.values()]
     .map((row) => ({ ...row, usedSeconds: Math.round(row.usedSeconds) }))
     .sort((a, b) => b.usedSeconds - a.usedSeconds || a.name.localeCompare(b.name));
+}
+
+/**
+ * The sessions that contributed to the window, newest first.
+ *
+ * Returned alongside the totals so the dashboard can answer "what made up
+ * these 3h 30m?" and bucket usage into local days -- both without a second
+ * round trip, and without the server ever needing to know the operator's
+ * timezone.
+ */
+export function reportSessions(
+  sessions: UsageSession[],
+  from: Date,
+  to: Date,
+  now: Date,
+): ReportedSession[] {
+  return sessions
+    .map((session) => {
+      const end = usableUntil(session, now);
+      return { session, end, seconds: overlapSeconds(session.startedAt, end, from, to) };
+    })
+    .filter(({ seconds }) => seconds > 0)
+    .sort((a, b) => b.session.startedAt.getTime() - a.session.startedAt.getTime())
+    .map(({ session, end, seconds }) => ({
+      machineId: session.machineId,
+      startedAt: session.startedAt.toISOString(),
+      endedAt: end.toISOString(),
+      status: session.status,
+      usedSeconds: Math.round(seconds),
+    }));
 }

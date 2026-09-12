@@ -74,6 +74,43 @@ describe('Taymna session lifecycle (e2e, real Postgres)', () => {
     (globalThis as Record<string, unknown>).__enrollmentToken = res.body.enrollmentToken;
   });
 
+  it('renames a machine without disturbing its enrollment', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Front desk (renamed)' })
+      .expect(200);
+
+    expect(res.body).toMatchObject({ id: machineId, name: 'Front desk (renamed)' });
+
+    const listed = await request(app.getHttpServer())
+      .get('/machines')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(listed.body[0].name).toBe('Front desk (renamed)');
+  });
+
+  it('rejects a rename with an empty or over-long name', async () => {
+    await request(app.getHttpServer())
+      .patch(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: '' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .patch(`/machines/${machineId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'x'.repeat(101) })
+      .expect(400);
+  });
+
+  it('refuses to rename a machine without an operator token', async () => {
+    await request(app.getHttpServer())
+      .patch(`/machines/${machineId}`)
+      .send({ name: 'nope' })
+      .expect(401);
+  });
+
   it('rejects a malformed or already-used enrollment token', async () => {
     await request(app.getHttpServer())
       .post('/machines/enroll')

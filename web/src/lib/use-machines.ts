@@ -69,6 +69,18 @@ export function useRevokeCredential() {
   });
 }
 
+export function useRenameMachine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ machineId, name }: { machineId: string; name: string }) =>
+      api.renameMachine(machineId, name),
+    onSuccess: (machine) =>
+      queryClient.setQueryData<Machine[]>(machinesQueryKey, (current) =>
+        current?.map((m) => (m.id === machine.id ? machine : m)),
+      ),
+  });
+}
+
 export function useDeleteMachine() {
   const queryClient = useQueryClient();
   return useMutation({

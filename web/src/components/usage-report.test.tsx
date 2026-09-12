@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { UsageReportView } from "./usage-report";
@@ -28,6 +28,29 @@ const report: UsageReport = {
     { machineId: "m2", name: "Back office", platform: "LINUX", usedSeconds: 1_800, sessionCount: 1 },
     { machineId: "m3", name: "Storeroom", platform: "MACOS", usedSeconds: 0, sessionCount: 0 },
   ],
+  sessions: [
+    {
+      machineId: "m1",
+      startedAt: new Date(2026, 8, 12, 9, 0).toISOString(),
+      endedAt: new Date(2026, 8, 12, 11, 0).toISOString(),
+      status: "EXPIRED",
+      usedSeconds: 7_200,
+    },
+    {
+      machineId: "m1",
+      startedAt: new Date(2026, 8, 11, 13, 0).toISOString(),
+      endedAt: new Date(2026, 8, 11, 14, 30).toISOString(),
+      status: "ENDED",
+      usedSeconds: 5_400,
+    },
+    {
+      machineId: "m2",
+      startedAt: new Date(2026, 8, 11, 10, 0).toISOString(),
+      endedAt: new Date(2026, 8, 11, 10, 30).toISOString(),
+      status: "EXPIRED",
+      usedSeconds: 1_800,
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -49,8 +72,10 @@ describe("UsageReportView", () => {
   it("still lists a machine that was not used at all", async () => {
     renderWithProviders(<UsageReportView />);
 
-    expect(await screen.findByText("Storeroom")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    const storeroom = (await screen.findByText("Storeroom")).closest("li");
+    expect(storeroom).not.toBeNull();
+    // Scoped to its own row: unused days in the daily breakdown read "—" too.
+    expect(within(storeroom as HTMLElement).getByText("—")).toBeInTheDocument();
     expect(screen.getByText(/across 2 of 3 machines/)).toBeInTheDocument();
   });
 
@@ -73,6 +98,42 @@ describe("UsageReportView", () => {
     await waitFor(() => expect(usageReport.mock.calls.length).toBeGreaterThan(1));
     const [from, to] = usageReport.mock.calls.at(-1) as [string, string];
     expect(new Date(to).getTime() - new Date(from).getTime()).toBe(24 * 3600 * 1000);
+  });
+
+  it("expands a machine to show the sessions behind its total", async () => {
+    renderWithProviders(<UsageReportView />);
+
+    const toggle = await screen.findByRole("button", { name: /3 sessions/ });
+    expect(screen.queryByText(/ended early/)).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+
+    expect(screen.getByText(/ran to the end/)).toBeInTheDocument();
+    expect(screen.getByText(/ended early/)).toBeInTheDocument();
+  });
+
+  it("offers no expander for a machine with no sessions", async () => {
+    renderWithProviders(<UsageReportView />);
+
+    expect(await screen.findByText(/no sessions/)).toBeInTheDocument();
+  });
+
+  it("breaks a multi-day range down by day", async () => {
+    renderWithProviders(<UsageReportView />);
+
+    expect(await screen.findByText("By day")).toBeInTheDocument();
+    // Seven days in the default range, each listed even when unused.
+    const rows = screen.getAllByText(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/);
+    expect(rows).toHaveLength(7);
+  });
+
+  it("does not break a single day down by day", async () => {
+    renderWithProviders(<UsageReportView />);
+    await waitFor(() => expect(usageReport).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Today" }));
+
+    await waitFor(() => expect(screen.queryByText("By day")).not.toBeInTheDocument());
   });
 
   it("surfaces a failed report instead of showing zeroes", async () => {

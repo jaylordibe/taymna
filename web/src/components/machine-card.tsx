@@ -11,6 +11,7 @@ import {
   useEndSession,
   useExtendSession,
   useIssueEnrollmentToken,
+  useRenameMachine,
   useRevokeCredential,
   useStartSession,
 } from "@/lib/use-machines";
@@ -27,6 +28,8 @@ export function MachineCard({ machine }: { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   const [enrollCommand, setEnrollCommand] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // `null` while not renaming; a string (possibly empty) while editing.
+  const [draftName, setDraftName] = useState<string | null>(null);
   // Every destructive action (end session, revoke, remove) goes through
   // this one two-step confirm; only one can be pending at a time.
   const [confirm, setConfirm] = useState<"end" | "revoke" | "remove" | null>(null);
@@ -36,6 +39,7 @@ export function MachineCard({ machine }: { machine: Machine }) {
   const issueEnrollmentToken = useIssueEnrollmentToken();
   const revokeCredential = useRevokeCredential();
   const deleteMachine = useDeleteMachine();
+  const renameMachine = useRenameMachine();
 
   const session = machine.activeSession;
   const isExpired = session ? new Date(session.expiresAt).getTime() <= now : false;
@@ -73,6 +77,24 @@ export function MachineCard({ machine }: { machine: Machine }) {
     }
   }
 
+  async function handleRename(event: React.FormEvent) {
+    event.preventDefault();
+    const name = draftName?.trim();
+    // An unchanged name is a cancel, not a request -- no point spending a
+    // round trip to write what is already there.
+    if (!name || name === machine.name) {
+      setDraftName(null);
+      return;
+    }
+    try {
+      await renameMachine.mutateAsync({ machineId: machine.id, name });
+      setDraftName(null);
+    } catch {
+      // Leave the field open with what they typed so it can be retried;
+      // the name on screen is still the one the server has.
+    }
+  }
+
   async function handleGetInstallCommand() {
     setCopied(false);
     const result = await issueEnrollmentToken.mutateAsync(machine.id);
@@ -103,8 +125,47 @@ export function MachineCard({ machine }: { machine: Machine }) {
       <div className={`w-1.5 shrink-0 ${BAR_COLOR[state]}`} aria-hidden />
       <div className="flex-1 p-5">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-semibold text-ink">{machine.name}</h2>
-          <span className="text-sm text-ink-soft">{platformLabel(machine.platform)}</span>
+          {draftName === null ? (
+            <h2 className="flex items-baseline gap-2 text-lg font-semibold text-ink">
+              {machine.name}
+              <button
+                type="button"
+                onClick={() => setDraftName(machine.name)}
+                aria-label={`Rename ${machine.name}`}
+                className="text-xs font-normal text-ink-soft hover:text-ink"
+              >
+                Rename
+              </button>
+            </h2>
+          ) : (
+            <form onSubmit={handleRename} className="flex flex-1 items-center gap-2">
+              <input
+                value={draftName}
+                onChange={(event) => setDraftName(event.target.value)}
+                aria-label="Machine name"
+                maxLength={100}
+                autoFocus
+                className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-2 py-1 text-lg font-semibold text-ink"
+              />
+              <button
+                type="submit"
+                disabled={!draftName.trim() || renameMachine.isPending}
+                className="shrink-0 rounded-full bg-amber px-3 py-1 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraftName(null)}
+                className="shrink-0 text-sm text-ink-soft hover:text-ink"
+              >
+                Cancel
+              </button>
+            </form>
+          )}
+          {draftName === null && (
+            <span className="text-sm text-ink-soft">{platformLabel(machine.platform)}</span>
+          )}
         </div>
 
         <p className="mt-1 text-sm text-ink-soft">
