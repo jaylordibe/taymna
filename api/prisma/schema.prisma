@@ -44,6 +44,13 @@ model Machine {
   /// argon2id hash of the machine's credential secret; null until enrollment completes
   credentialHash      String?   @map("credential_hash")
   credentialRevokedAt DateTime? @map("credential_revoked_at")
+  /// Set when an operator requests removal; while non-null the machine is
+  /// "pending decommission". The row and its credential are deliberately kept
+  /// valid so the still-installed agent can reconnect, be told to relinquish
+  /// control, and acknowledge -- only then is the row deleted (finalized). A
+  /// null value is a MANAGED machine (the default for every existing row).
+  /// See docs/enrollment.md "Decommissioning a machine".
+  decommissionRequestedAt DateTime? @map("decommission_requested_at")
   lastSeenAt          DateTime? @map("last_seen_at")
   /// Version the agent reported on its last heartbeat; null until a machine
   /// running an agent new enough to report one connects. Untrusted display

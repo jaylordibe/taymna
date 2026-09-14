@@ -80,6 +80,13 @@ Machine 1 ──< EnrollmentToken   (one-time, short-lived, hashed)
 Operator                         (single admin account for V1)
 ```
 
+A `Machine` is not just a row -- it stands for a physical computer running a
+privileged, locally-enforcing agent. So its **removal is a lifecycle
+transition, not a delete**: the agent is asked to relinquish control and only
+after it acknowledges is the row destroyed, so a removed machine can never be
+left orphaned and enforcing. See
+[enrollment.md](enrollment.md#decommissioning-a-machine).
+
 `remaining_time` is never stored -- it's always `expiresAt - now`, computed
 client-side by both the web dashboard and the agent. See
 [offline-expiry.md](offline-expiry.md) for how the agent computes "now"

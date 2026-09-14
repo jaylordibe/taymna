@@ -62,9 +62,11 @@ without affecting any other machine.
 
 This is a structural property of the protocol, not a policy the code
 happens to follow: the agent's WebSocket message parser
-(`agent/src/client.rs`) only knows how to deserialize three server->agent
-message shapes (`session_state`, `heartbeat_ack`, `error`), none of which
-carry a command, shell string, or file path. See
+(`agent/src/client.rs`) only knows how to deserialize four server->agent
+message shapes (`session_state`, `heartbeat_ack`, `decommission`, `error`),
+none of which carry a command, shell string, or file path. `decommission` is
+a bare lifecycle fact -- it tells the agent to relinquish control, not *how* to
+do anything -- so adding it does not widen this surface. See
 [protocol.md](protocol.md) for the full message catalogue.
 
 The agent does invoke OS processes -- to lock the machine, and to show
@@ -108,3 +110,26 @@ is never itself a credential leak.
 - Taymna's threat model is "prevent casual/accidental override of a time
   limit," not "withstand a user with full local admin/root trying hard" --
   see the closing note in [offline-expiry.md](offline-expiry.md).
+- Revoking a machine's credential (`DELETE /machines/:id/credential`) stops it
+  reconnecting but does **not** stop an installed agent enforcing locally, and
+  a revoked machine can no longer be told to decommission (it cannot
+  authenticate). Clean removal is done while the machine is *managed*; a
+  machine orphaned by revocation (or by an older Taymna version) is recovered
+  with local admin control -- see
+  [enrollment.md](enrollment.md#recovering-an-orphaned-agent-legacy).
+
+## Removal is fail-safe, like enforcement
+
+Releasing Taymna control is only ever the result of an **authenticated,
+operator-initiated** decommission -- never a side effect of something failing.
+The agent sets its terminal "decommissioned" state solely on receiving an
+authenticated `decommission` message over its credential-authenticated
+WebSocket. Every connectivity failure -- network/API/WebSocket/DNS/TLS/proxy
+down, server or database restart, HTTP `401`/`404`, timeouts, corrupt
+responses -- is handled exactly as before: reconnect with backoff and **keep
+enforcing from local state**. An attacker who merely breaks connectivity
+cannot release enforcement. (A `401` is treated as "stop retrying the ack"
+*only after* a decommission was already accepted, i.e. after enforcement had
+already been relinquished; a managed agent seeing a `401` reconnects and keeps
+enforcing.) The removal path does not weaken `ClockGuard`, offline expiry, or
+credential handling, and adds no local unlock endpoint or listener.

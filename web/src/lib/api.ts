@@ -1,6 +1,15 @@
 import { getStoredToken } from "./auth-storage";
 import type { Machine, Operator, Platform, SessionState, UsageReport } from "./types";
 
+/**
+ * The result of requesting removal. `removed` means the machine had no enrolled
+ * agent to coordinate with and is already gone; `decommissioning` means the
+ * agent is being asked to relinquish control and the machine is now pending.
+ */
+export type RemoveMachineResult =
+  | { outcome: "removed" }
+  | { outcome: "decommissioning"; machine: Machine };
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
 export class ApiError extends Error {
@@ -66,7 +75,7 @@ export const api = {
     request<Machine>(`/machines/${machineId}/credential`, { method: "DELETE" }),
 
   deleteMachine: (machineId: string) =>
-    request<void>(`/machines/${machineId}`, { method: "DELETE" }),
+    request<RemoveMachineResult>(`/machines/${machineId}`, { method: "DELETE" }),
 
   startSession: (machineId: string, durationMinutes: number) =>
     request<SessionState>(`/machines/${machineId}/sessions`, {

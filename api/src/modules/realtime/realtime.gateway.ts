@@ -82,6 +82,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     await this.machines.recordHeartbeat(machineId);
 
+    // A machine an operator has asked to remove is told to relinquish control
+    // *instead of* being handed session state -- so it never resumes (or
+    // begins) enforcement on the way to being decommissioned. Delivered here,
+    // on every authenticated connect, is what makes the offline-removal case
+    // work: an agent that was offline when removal was requested receives this
+    // the moment it reconnects, with no queue or polling.
+    if (await this.machines.isPendingDecommission(machineId)) {
+      this.send(client, { type: 'decommission', serverTime: new Date().toISOString() });
+      return;
+    }
+
     const activeSession = await this.sessions.getActiveSession(machineId);
     this.send(client, {
       type: 'session_state',
@@ -111,6 +122,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (message.type === 'heartbeat') {
       await this.machines.recordHeartbeat(machineId, message.version);
       this.send(client, { type: 'heartbeat_ack', serverTime: new Date().toISOString() });
+      return;
+    }
+
+    if (message.type === 'decommission_ack') {
+      // The agent has durably un-enrolled and stopped enforcing; it is now safe
+      // to destroy its server-side identity. Idempotent -- a duplicate ack, or
+      // one for an already-finalized machine, is a no-op.
+      await this.machines.finalizeDecommission(machineId);
     }
   }
 

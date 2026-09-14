@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { MachinesService, EnrollResult } from './machines.service.js';
+import { MachinesService, EnrollResult, RemoveMachineResult } from './machines.service.js';
 import { CreateMachineDto } from './dto/create-machine.dto.js';
 import { UpdateMachineDto } from './dto/update-machine.dto.js';
 import { EnrollDto } from './dto/enroll.dto.js';
@@ -63,11 +63,18 @@ export class MachinesController {
     return this.machines.revokeCredential(id);
   }
 
+  /**
+   * Requests removal. This is not a plain hard delete: for an enrolled machine
+   * it starts an acknowledged decommission hand-off (the agent relinquishes
+   * control before its identity is destroyed), so the response reports the new
+   * lifecycle state rather than a bare 204 that would imply the row is already
+   * gone. See MachinesService.requestDecommission.
+   */
   @Delete(':id')
   @UseGuards(OperatorAuthGuard)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    return this.machines.remove(id);
+  @HttpCode(HttpStatus.OK)
+  remove(@Param('id', ParseUUIDPipe) id: string): Promise<RemoveMachineResult> {
+    return this.machines.requestDecommission(id);
   }
 
   @Post('enroll')

@@ -24,6 +24,13 @@ needed on either side.
 Sent every ~20 seconds. The server updates the machine's `lastSeenAt` and
 acknowledges.
 
+The agent also sends exactly one other message, and only in response to a
+decommission (see below):
+
+```json
+{ "type": "decommission_ack" }
+```
+
 That's the **entire** set of messages the agent ever sends. There is no
 "report status", no "request command", nothing else.
 
@@ -77,11 +84,46 @@ and auth/protocol problems with:
 { "type": "error", "code": "...", "message": "..." }
 ```
 
+One further message is sent only when an operator has requested the machine's
+removal (see "Decommissioning" below), in place of `session_state`:
+
+```json
+{ "type": "decommission", "serverTime": "2026-01-01T10:00:00.100Z" }
+```
+
+Like every other server->agent message it is a **fact, not a command**: it
+carries no payload the agent could execute. The agent responds by durably
+recording that it is no longer enrolled and stopping enforcement, *then*
+sending `decommission_ack`. (`serverTime` is included for symmetry; the agent
+does not use it -- decommission is not time-based.)
+
 **This is the complete set of messages the agent can receive.** There is
 deliberately no message type that carries a command, a shell string, or
-anything the agent would execute -- only facts about session state. This is
-a structural guarantee, not a convention: the agent's message parser
-(`agent/src/client.rs`) only knows how to deserialize these three shapes.
+anything the agent would execute -- only facts about session state and this
+one lifecycle transition. This is a structural guarantee, not a convention:
+the agent's message parser (`agent/src/client.rs`) only knows how to
+deserialize these shapes, none of which is a command.
+
+## Decommissioning
+
+Removing a machine is a two-phase, acknowledged hand-off, not a delete -- so
+the still-installed agent relinquishes control *before* its server-side
+identity is destroyed. The full lifecycle, states, and race handling are in
+[enrollment.md](enrollment.md#decommissioning-a-machine); the protocol part is:
+
+1. The server marks the machine pending and sends `decommission` (immediately
+   if the agent is connected; otherwise on its next authenticated connect,
+   in place of `session_state`).
+2. The agent persists its decommissioned state to disk, stops enforcing, and
+   replies `decommission_ack`.
+3. The server deletes the machine (invalidating the old credential) and closes
+   the socket with application close code **`4003`**, which tells the agent the
+   removal is finalized and it can stop re-delivering the ack.
+
+Every step is idempotent: `decommission` may be re-sent on reconnect, and
+`decommission_ack` may be re-sent until finalized, with no ill effect. A
+connectivity failure never triggers any of this -- only an authenticated
+`decommission` message does.
 
 ### Stale-message protection
 
@@ -103,8 +145,15 @@ still cheap):
 ```json
 { "type": "machine_updated", "machineId": "...", "online": true, "lastSeenAt": "...", "agentVersion": "0.2.0" }
 { "type": "session_updated", "machineId": "...", "session": { ... } | null }
+{ "type": "machine_decommissioning", "machineId": "..." }
 { "type": "machine_removed", "machineId": "..." }
 ```
+
+`machine_decommissioning` fires when removal is requested but not yet complete;
+the dashboard shows the machine as removing/waiting rather than dropping it.
+`machine_removed` fires once the agent has acknowledged (or for a machine that
+had no agent to coordinate with) and is what actually removes it from the
+dashboard.
 
 `agentVersion` is `null` for a machine whose agent is too old to report one,
 or that has never connected.

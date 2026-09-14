@@ -85,10 +85,16 @@ export function useDeleteMachine() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (machineId: string) => api.deleteMachine(machineId),
-    onSuccess: (_result, machineId) =>
-      queryClient.setQueryData<Machine[]>(machinesQueryKey, (current) =>
-        current?.filter((m) => m.id !== machineId),
-      ),
+    onSuccess: (result, machineId) =>
+      queryClient.setQueryData<Machine[]>(machinesQueryKey, (current) => {
+        if (!current) return current;
+        // No agent to coordinate with: the machine is already gone.
+        if (result.outcome === "removed") return current.filter((m) => m.id !== machineId);
+        // Otherwise it is now pending decommission -- keep it on screen, marked
+        // as removing/waiting, until the agent acknowledges (a `machine_removed`
+        // realtime event, or a refetch, drops it then).
+        return current.map((m) => (m.id === machineId ? { ...m, decommissioning: true } : m));
+      }),
   });
 }
 

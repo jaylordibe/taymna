@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { isUUID } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
@@ -37,8 +37,21 @@ export interface EnrollResult {
   machineSecret: string;
 }
 
+/**
+ * The outcome of a removal request. A machine with a live, credential-holding
+ * agent cannot be deleted outright without orphaning it (the reported bug), so
+ * removal becomes a two-phase, acknowledged hand-off: `decommissioning` means
+ * "asked, waiting for the agent to relinquish control". `removed` means there
+ * was no such agent to coordinate with and the row is already gone.
+ */
+export type RemoveMachineResult =
+  | { outcome: 'removed' }
+  | { outcome: 'decommissioning'; machine: MachineDto };
+
 @Injectable()
 export class MachinesService {
+  private readonly logger = new Logger(MachinesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessions: SessionsService,
@@ -99,10 +112,89 @@ export class MachinesService {
     return this.toDto(machine);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.requireMachine(id);
-    // Kick a live agent first so it can't keep talking about a row that's
-    // about to vanish; its sessions and tokens go with it (onDelete: Cascade).
+  /**
+   * Requests removal of a machine. This is a lifecycle transition, not a CRUD
+   * delete: deleting the row of a machine whose agent is installed and
+   * enforcing would strand that agent (server-side identity gone, agent still
+   * locking, unable to reconnect) -- the exact bug this replaced.
+   *
+   * A machine with a usable credential is instead marked *pending
+   * decommission* and told, over its authenticated connection, to relinquish
+   * control; the row (and credential) survive until the agent acknowledges,
+   * which is when `finalizeDecommission` deletes it. If the agent is offline
+   * the request simply waits -- the machine stays pending and is decommissioned
+   * the moment it next reconnects.
+   *
+   * A machine with no usable credential (never enrolled, or credential
+   * revoked) has no agent that can authenticate to be told anything, so there
+   * is no live agent to orphan: it is deleted directly.
+   *
+   * Idempotent: requesting removal of an already-pending machine re-delivers
+   * the instruction (in case the agent has since reconnected) and reports the
+   * same pending state.
+   */
+  async requestDecommission(id: string): Promise<RemoveMachineResult> {
+    const machine = await this.requireMachine(id);
+
+    const hasUsableCredential =
+      machine.credentialHash !== null && machine.credentialRevokedAt === null;
+    if (!hasUsableCredential) {
+      await this.hardDelete(id);
+      this.logger.log(`Removed machine ${id} directly (no enrolled agent to coordinate with)`);
+      return { outcome: 'removed' };
+    }
+
+    let current = machine;
+    if (machine.decommissionRequestedAt === null) {
+      current = await this.prisma.machine.update({
+        where: { id },
+        data: { decommissionRequestedAt: new Date() },
+      });
+      this.registry.broadcastToOperators({ type: 'machine_decommissioning', machineId: id });
+      this.logger.log(`Decommission requested for machine ${id}`);
+    }
+
+    // Tell the agent to relinquish control. Only delivered if it is currently
+    // connected; if not, the gateway re-delivers this on its next
+    // authenticated connect (see RealtimeGateway). Either way the row and its
+    // credential stay valid until the agent acknowledges.
+    const delivered = this.registry.isAgentConnected(id);
+    this.registry.sendToMachine(id, {
+      type: 'decommission',
+      serverTime: new Date().toISOString(),
+    });
+    if (delivered) this.logger.log(`Decommission delivered to connected agent ${id}`);
+
+    return { outcome: 'decommissioning', machine: await this.toDto(current) };
+  }
+
+  /**
+   * Finalizes a decommission once the agent has acknowledged that it has
+   * durably un-enrolled and stopped enforcing. Deletes the row (cascading its
+   * sessions and tokens), which invalidates the old credential permanently.
+   *
+   * Atomic and idempotent: the delete is conditioned on the machine still
+   * being pending, so a duplicate ack, an ack racing another ack, or an ack
+   * for an already-finalized machine deletes nothing and broadcasts nothing.
+   * It will never delete a machine that is not pending decommission on the
+   * strength of an acknowledgement.
+   */
+  async finalizeDecommission(machineId: string): Promise<void> {
+    const { count } = await this.prisma.machine.deleteMany({
+      where: { id: machineId, decommissionRequestedAt: { not: null } },
+    });
+    if (count === 0) return;
+
+    // Close the socket so the now-inert agent stops trying to re-deliver its
+    // ack (close code 4003 tells it the server finalized). Its old credential
+    // no longer authenticates -- the row is gone.
+    this.registry.disconnectMachine(machineId, 4003, 'Decommissioned');
+    this.registry.broadcastToOperators({ type: 'machine_removed', machineId });
+    this.logger.log(`Finalized decommission for machine ${machineId}`);
+  }
+
+  /** Deletes a machine row outright (sessions and tokens cascade). */
+  private async hardDelete(id: string): Promise<void> {
     this.registry.disconnectMachine(id, 4002, 'Machine removed');
     await this.prisma.machine.delete({ where: { id } });
     this.registry.broadcastToOperators({ type: 'machine_removed', machineId: id });
@@ -153,6 +245,21 @@ export class MachinesService {
     return { machineId: machine.id, machineSecret };
   }
 
+  /**
+   * Whether a removal has been requested for this machine but not yet
+   * finalized. Used by the WS gateway to decide, on an agent's authenticated
+   * connect, whether to resume normal session enforcement or instead instruct
+   * it to relinquish control. Deliberately independent of credential validity:
+   * a pending machine keeps authenticating precisely so it can be told.
+   */
+  async isPendingDecommission(machineId: string): Promise<boolean> {
+    const machine = await this.prisma.machine.findUnique({
+      where: { id: machineId },
+      select: { decommissionRequestedAt: true },
+    });
+    return !!machine && machine.decommissionRequestedAt !== null;
+  }
+
   /** Used by the WS gateway to authenticate `Authorization: Machine <id>.<secret>`. */
   async verifyMachineCredential(machineId: string, secret: string): Promise<boolean> {
     if (!isUUID(machineId)) return false;
@@ -191,6 +298,7 @@ export class MachinesService {
       name: machine.name,
       platform: machine.platform,
       online: this.isOnline(machine.lastSeenAt),
+      decommissioning: machine.decommissionRequestedAt !== null,
       lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
       agentVersion: machine.agentVersion,
       activeSession: activeSession ? SessionsService.toDto(activeSession) : null,

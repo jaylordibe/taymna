@@ -155,6 +155,11 @@ guaranteed per OS: [docs/enforcement.md](docs/enforcement.md).
   There is no shared secret anywhere.
 - The WebSocket protocol has no "run this" message — structurally, the
   server cannot execute anything on a machine.
+- Removing a machine is a coordinated hand-off, not a delete: the agent is
+  asked to relinquish control and only acknowledges after it has durably
+  stopped enforcing, so removal can never strand a locked machine. Breaking
+  connectivity never releases enforcement. See
+  [Enrollment › Decommissioning](docs/enrollment.md#decommissioning-a-machine).
 - Input validation on every route, rate limiting on auth and enrollment,
   CORS locked to the dashboard's origin, secrets redacted from logs.
 

@@ -29,6 +29,17 @@ pub struct Credentials {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentState {
     pub credentials: Option<Credentials>,
+    /// Terminal, durable "this machine has been decommissioned" flag. Set
+    /// (and persisted) the instant an authenticated decommission is accepted,
+    /// *before* the server is acknowledged, so that a crash, reboot or network
+    /// loss between acceptance and acknowledgement can never resurrect
+    /// enforcement -- the agent that comes back up reads this and stays inert.
+    /// The credential is deliberately retained alongside it, solely so the ack
+    /// can be re-delivered until the server finalizes. Cleared only by a fresh
+    /// enrollment. `#[serde(default)]` so an existing pre-upgrade state.json
+    /// (which has no such field) loads as `false` = still managed.
+    #[serde(default)]
+    pub decommissioned: bool,
     pub session: Option<SessionSnapshot>,
     /// Timestamp of the last server message we accepted (session's own
     /// `updatedAt` when a session is present, otherwise the message's
@@ -46,6 +57,7 @@ impl Default for AgentState {
         let now = Utc::now();
         Self {
             credentials: None,
+            decommissioned: false,
             session: None,
             last_applied_at: now,
             trusted_high_water_mark: now,
@@ -251,6 +263,56 @@ mod tests {
         store.save(&state).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded, state);
+    }
+
+    #[test]
+    fn decommissioned_flag_round_trips_through_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(Some(dir.path().to_path_buf())).unwrap();
+
+        let state = AgentState {
+            credentials: Some(Credentials {
+                server_url: "https://example.com".into(),
+                machine_id: "machine-1".into(),
+                machine_secret: "secret".into(),
+            }),
+            decommissioned: true,
+            session: None,
+            ..AgentState::default()
+        };
+        store.save(&state).unwrap();
+        assert!(store.load().unwrap().decommissioned);
+    }
+
+    #[test]
+    fn a_pre_upgrade_state_file_without_the_field_loads_as_still_managed() {
+        // An agent upgraded in place reads a state.json written by an older
+        // build that had no `decommissioned` field. It must default to false
+        // (managed) -- never resurrect-or-invent a decommission.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        let now = Utc::now().to_rfc3339();
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{
+                  "credentials": {{
+                    "server_url": "https://example.com",
+                    "machine_id": "m1",
+                    "machine_secret": "s"
+                  }},
+                  "session": null,
+                  "last_applied_at": "{now}",
+                  "trusted_high_water_mark": "{now}"
+                }}"#
+            ),
+        )
+        .unwrap();
+
+        let store = Store::new(Some(dir.path().to_path_buf())).unwrap();
+        let loaded = store.load().unwrap();
+        assert!(!loaded.decommissioned);
+        assert!(loaded.credentials.is_some());
     }
 
     #[test]

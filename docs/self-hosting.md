@@ -92,12 +92,29 @@ On each machine's card:
 
 - **Revoke credential** disconnects the agent and invalidates its saved
   credential; it can't reconnect until it's enrolled again with a fresh
-  token. Use it if a machine's credential may have leaked, or to take a
-  machine out of service without deleting its history.
-- **Remove machine** deletes the machine along with its sessions and tokens
-  (after a confirmation). Any live agent is disconnected first. The agent
-  software on that machine keeps running until you uninstall it (stop and
-  delete the service), but it can never reconnect.
+  token. Use it if a machine's credential may have leaked. Note that revoking
+  does **not** stop an installed agent enforcing locally, and a revoked machine
+  can no longer be cleanly removed (it can't reconnect to be told to) -- so
+  prefer **Remove machine** while the machine is still managed.
+- **Remove machine** (after a confirmation) starts a coordinated removal, not
+  an immediate delete. Taymna tells the agent to relinquish control; the agent
+  stops enforcing and acknowledges, and only then is the machine deleted (with
+  its sessions and tokens) and dropped from the dashboard. This is what
+  prevents the machine being left locked with no way to recover it through
+  Taymna.
+  - If the machine is **online**, this takes a moment; the card shows
+    *Removing…* and then disappears.
+  - If it is **offline**, the card shows *Waiting for this machine* and stays
+    there until the agent next connects, at which point the removal completes
+    automatically -- no queue, no polling.
+  - A machine that was **never enrolled**, or whose credential was already
+    revoked, has no agent to coordinate with and is removed immediately.
+
+  After removal the computer behaves as un-enrolled: the agent stays installed
+  but inert (a reboot does not resume enforcement), and you enroll it again
+  through the normal flow with a fresh token. See
+  [enrollment.md](enrollment.md#decommissioning-a-machine), including how to
+  recover a machine orphaned by an older Taymna version.
 
 ## Starting, extending, and ending a session
 
@@ -166,6 +183,19 @@ docker compose down -v       # stop AND delete all data -- irreversible
 git pull
 docker compose up -d --build # upgrade: rebuild images, re-run migrations
 ```
+
+The migration that adds the machine-decommission lifecycle is additive and
+nullable, so it is safe to apply to a live database: every existing machine
+keeps working exactly as before (they default to managed).
+
+**Upgrade the server before relying on clean removal, then upgrade agents.**
+An agent that predates this feature does not understand the removal
+instruction and will not acknowledge it -- so if you *Remove* such a machine it
+safely stays in *Waiting for this machine* and keeps enforcing normally
+(never orphaned) until you upgrade its agent, at which point the removal
+completes. In other words, a machine can only be cleanly removed once its agent
+is new enough; the server never deletes a machine's row until an agent has
+acknowledged, so no rollout order can strand one.
 
 ## Data
 

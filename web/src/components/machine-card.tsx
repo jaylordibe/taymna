@@ -117,6 +117,11 @@ export function MachineCard({ machine }: { machine: Machine }) {
       await deleteMachine.mutateAsync(machine.id);
     } finally {
       setBusy(false);
+      // On success the card either unmounts (removed) or re-renders into the
+      // "Removing…/Waiting" state (decommissioning), which takes precedence
+      // over this confirm. On failure the confirm is cleared so the operator
+      // sees the unchanged actions and can retry.
+      setConfirm(null);
     }
   }
 
@@ -280,7 +285,17 @@ export function MachineCard({ machine }: { machine: Machine }) {
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-xs">
-          {confirm === "revoke" ? (
+          {machine.decommissioning ? (
+            // Removal has been requested; the machine stays on screen, with its
+            // actions disabled, until the agent relinquishes control. It then
+            // disappears (a realtime machine_removed event). An offline machine
+            // waits here until its agent reconnects.
+            <span className="text-ink-soft" role="status">
+              {machine.online
+                ? "Removing…"
+                : "Waiting for this machine. Taymna will remove it once the agent reconnects."}
+            </span>
+          ) : confirm === "revoke" ? (
             <>
               <span className="text-ink-soft">
                 Revoke its credential? The agent disconnects and needs a fresh enrollment.
@@ -304,7 +319,8 @@ export function MachineCard({ machine }: { machine: Machine }) {
           ) : confirm === "remove" ? (
             <>
               <span className="text-ink-soft">
-                Remove {machine.name}? Its sessions and tokens are deleted too.
+                Remove {machine.name}? Taymna will stop managing this computer. It must be
+                enrolled again before Taymna can control it.
               </span>
               <button
                 type="button"
@@ -312,7 +328,7 @@ export function MachineCard({ machine }: { machine: Machine }) {
                 onClick={handleRemove}
                 className="font-medium text-brick hover:underline disabled:opacity-50"
               >
-                Remove
+                Remove machine
               </button>
               <button
                 type="button"

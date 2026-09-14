@@ -291,6 +291,12 @@ async fn enroll(store: &Store, server: String, token: String) -> anyhow::Result<
         machine_id: parsed.machine_id.clone(),
         machine_secret: parsed.machine_secret,
     });
+    // A fresh enrollment is a clean slate: a previously decommissioned machine
+    // becomes managed again, and no stale session from a prior identity carries
+    // over. The anti-rollback high-water mark is intentionally preserved (it
+    // must never move backward, even across re-enrollment).
+    state.decommissioned = false;
+    state.session = None;
     store.save(&state)?;
 
     println!("Enrolled successfully as machine {}", parsed.machine_id);
@@ -303,6 +309,14 @@ async fn run(
 ) -> anyhow::Result<()> {
     let mut state = store.load()?;
     let Some(credentials) = state.credentials.clone() else {
+        if state.decommissioned {
+            // Decommissioned with no credential left to acknowledge with:
+            // nothing to do but stay inert. Critically, this path never
+            // enforces -- a service restart after decommission does not lock.
+            info!("machine is decommissioned; agent is inert");
+            wait_for_shutdown(external_stop).await;
+            return Ok(());
+        }
         anyhow::bail!(
             "this machine is not enrolled yet -- run `taymna-agent enroll --server <url> --token <token>` first"
         );
@@ -333,7 +347,26 @@ async fn run(
     let mut warnings = warning::ExpiryWarnings::new();
 
     let (events_tx, mut events_rx) = mpsc::unbounded_channel();
-    tokio::spawn(client::run(credentials, events_tx));
+    // Lets the run loop tell the client *when* it is safe to acknowledge a
+    // decommission -- only after this loop has persisted it (see
+    // accept_decommission). The run loop owns the state file; the client owns
+    // the socket.
+    let (client_cmd_tx, client_cmd_rx) = mpsc::unbounded_channel();
+    tokio::spawn(client::run(credentials, events_tx, client_cmd_rx));
+
+    // Once true, this enrollment has relinquished control and must never
+    // enforce again. Seeded from the persisted flag (the ack-lost-then-restart
+    // race: we accepted a decommission, restarted before finalization, and
+    // must not lock while re-delivering the ack) and set when a decommission
+    // arrives mid-run.
+    let mut decommissioned = state.decommissioned;
+    if decommissioned {
+        info!("machine is decommissioned; agent will not enforce, re-delivering acknowledgement");
+        let _ = client_cmd_tx.send(client::ClientCommand::AckDecommission);
+    }
+    // The client task can now legitimately end (once the server finalizes),
+    // so the events branch is disabled rather than spun on when it does.
+    let mut events_closed = false;
 
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     let mut shutdown = std::pin::pin!(wait_for_shutdown(external_stop));
@@ -345,9 +378,23 @@ async fn run(
                 store.save(&state)?;
                 break;
             }
-            event = events_rx.recv() => {
+            event = events_rx.recv(), if !events_closed => {
                 match event {
-                    Some(client::ServerEvent::SessionState { session, message_time }) => {
+                    Some(client::ServerEvent::Decommission) => {
+                        // Idempotent: a duplicate decommission (a reconnect
+                        // re-delivery, say) is a no-op once already accepted;
+                        // the client re-acks on its own.
+                        if !decommissioned {
+                            accept_decommission(&store, &mut state, &warnings_tx, &client_cmd_tx)?;
+                            decommissioned = true;
+                        }
+                    }
+                    // Once decommissioned, the local state is the gate: no
+                    // session message belonging to the old enrollment may
+                    // restore management, so these are ignored outright.
+                    Some(client::ServerEvent::SessionState { session, message_time })
+                        if !decommissioned =>
+                    {
                         let applied = session::apply_server_message(
                             &mut state.session,
                             &mut state.last_applied_at,
@@ -360,18 +407,31 @@ async fn run(
                             store.save(&state)?;
                         }
                     }
-                    Some(client::ServerEvent::ServerTime(server_time)) => {
+                    Some(client::ServerEvent::ServerTime(server_time)) if !decommissioned => {
                         clock.resync_from_server(server_time);
                         state.trusted_high_water_mark = clock.high_water_mark();
                     }
+                    // A stale session/time event arriving after decommission.
+                    Some(_) => {}
                     None => {
-                        // The client task only exits if the channel sender is
-                        // dropped, which only happens if it panics.
-                        warn!("connection task ended unexpectedly");
+                        events_closed = true;
+                        if decommissioned {
+                            info!("connection task ended after decommission");
+                        } else {
+                            // The client only exits if its sender is dropped,
+                            // which (outside decommission) means it panicked.
+                            warn!("connection task ended unexpectedly");
+                        }
                     }
                 }
             }
             _ = ticker.tick() => {
+                if decommissioned {
+                    // Inert: enforcement has been relinquished. Deliberately no
+                    // disable_usage() (never re-lock), no enable_usage(), no
+                    // warnings, nothing to persist.
+                    continue;
+                }
                 let trusted_now = clock.now();
                 state.trusted_high_water_mark = clock.high_water_mark();
                 let desired = session::advance(&mut state.session, trusted_now);
@@ -411,6 +471,36 @@ async fn run(
     Ok(())
 }
 
+/// Accepts an authenticated decommission: durably records the terminal state
+/// and stops enforcement, *then* clears the acknowledgement to be sent.
+///
+/// The ordering is the crux of the whole design. The decommissioned flag and
+/// the cleared session are persisted BEFORE the server is acknowledged, so a
+/// crash, reboot or network loss in the gap between accepting and the ack
+/// reaching the server can never resurrect enforcement: the agent that comes
+/// back up reads `decommissioned = true` and stays inert, and the ack is
+/// re-delivered safely on the next connect.
+fn accept_decommission(
+    store: &Store,
+    state: &mut storage::AgentState,
+    warnings_tx: &std::sync::mpsc::Sender<warning::WarningEffect>,
+    client_cmd_tx: &mpsc::UnboundedSender<client::ClientCommand>,
+) -> anyhow::Result<()> {
+    state.decommissioned = true;
+    state.session = None;
+    store.save(state)?;
+    info!("decommission accepted; Taymna will no longer manage this machine");
+
+    // Take down any final-warning countdown that may be on screen, and stop
+    // warning. A notification failure here cannot block anything -- it is a
+    // fire-and-forget send to the (isolated, fallible) warnings thread.
+    let _ = warnings_tx.send(warning::WarningEffect::DismissFinalWarning);
+
+    // Only now is it safe to let the server finalize removal.
+    let _ = client_cmd_tx.send(client::ClientCommand::AckDecommission);
+    Ok(())
+}
+
 /// Waits for whichever comes first: Ctrl+C/SIGTERM, or (only when running as
 /// a Windows service) SCM asking us to stop -- either way resolving through
 /// the same graceful path in `run()`'s select loop, so state is always
@@ -440,4 +530,67 @@ async fn shutdown_signal() {
 #[cfg(not(unix))]
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use session::{SessionSnapshot, SessionStatus};
+    use storage::AgentState;
+
+    #[test]
+    fn accept_decommission_persists_the_terminal_state_before_acking() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(Some(dir.path().to_path_buf())).unwrap();
+
+        let mut state = AgentState {
+            credentials: Some(Credentials {
+                server_url: "https://example.com".into(),
+                machine_id: "m1".into(),
+                machine_secret: "s".into(),
+            }),
+            session: Some(SessionSnapshot {
+                id: "session-1".into(),
+                started_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::minutes(30),
+                status: SessionStatus::Active,
+                updated_at: Utc::now(),
+            }),
+            ..AgentState::default()
+        };
+        store.save(&state).unwrap();
+
+        let (warnings_tx, warnings_rx) = std::sync::mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+
+        accept_decommission(&store, &mut state, &warnings_tx, &cmd_tx).unwrap();
+
+        // The terminal state is durable on disk -- readable independently of
+        // the ack, which is exactly what the restart-before-finalize path
+        // relies on: the fact is written before the server is ever told.
+        let persisted = store.load().unwrap();
+        assert!(persisted.decommissioned, "decommissioned must be persisted");
+        assert!(
+            persisted.session.is_none(),
+            "session must be cleared on disk"
+        );
+        // The credential is retained, solely so the ack can be re-delivered.
+        assert!(persisted.credentials.is_some());
+
+        // In-memory state matches, enforcement can no longer key off a session.
+        assert!(state.decommissioned);
+        assert!(state.session.is_none());
+
+        // A final-warning dismissal was emitted, and the ack was queued for the
+        // client to deliver (after -- not before -- the persist above).
+        assert_eq!(
+            warnings_rx.try_recv(),
+            Ok(warning::WarningEffect::DismissFinalWarning),
+        );
+        assert!(matches!(
+            cmd_rx.try_recv(),
+            Ok(client::ClientCommand::AckDecommission),
+        ));
+    }
 }

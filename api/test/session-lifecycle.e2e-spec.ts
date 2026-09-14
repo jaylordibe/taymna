@@ -260,10 +260,16 @@ describe('Taymna session lifecycle (e2e, real Postgres)', () => {
   });
 
   it('removes a machine along with its sessions and tokens', async () => {
-    await request(app.getHttpServer())
+    // This machine's credential was revoked in the previous test, so there is
+    // no agent that can authenticate to coordinate a decommission -- removal is
+    // therefore immediate (outcome 'removed'), and returns 200 with that
+    // outcome rather than 204. See MachinesService.requestDecommission and the
+    // dedicated decommission lifecycle spec for the coordinated path.
+    const removed = await request(app.getHttpServer())
       .delete(`/machines/${machineId}`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .expect(204);
+      .expect(200);
+    expect(removed.body).toEqual({ outcome: 'removed' });
 
     await request(app.getHttpServer())
       .get(`/machines/${machineId}`)

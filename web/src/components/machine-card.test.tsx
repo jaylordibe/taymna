@@ -32,6 +32,7 @@ const availableMachine: Machine = {
   name: "PC-01",
   platform: "WINDOWS",
   online: true,
+  decommissioning: false,
   lastSeenAt: new Date().toISOString(),
   agentVersion: "0.2.0",
   activeSession: null,
@@ -137,17 +138,52 @@ describe("MachineCard", () => {
   });
 
   it("asks for confirmation before removing a machine, and can be cancelled", async () => {
-    deleteMachine.mockResolvedValueOnce(undefined);
+    deleteMachine.mockResolvedValueOnce({ outcome: "removed" });
     renderWithProviders(<MachineCard machine={availableMachine} />);
 
+    // The trigger and the confirm both read "Remove machine", but only one is
+    // ever on screen at a time, so each lookup is unambiguous.
     await userEvent.click(screen.getByRole("button", { name: "Remove machine" }));
     expect(deleteMachine).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Remove machine" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Remove machine" }));
-    await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove machine" }));
     await waitFor(() => expect(deleteMachine).toHaveBeenCalledWith("machine-1"));
+  });
+
+  it("patches the card to pending when removal is accepted (online agent)", async () => {
+    deleteMachine.mockResolvedValueOnce({
+      outcome: "decommissioning",
+      machine: { ...availableMachine, decommissioning: true },
+    });
+    renderWithProviders(<MachineCard machine={availableMachine} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove machine" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove machine" }));
+
+    await waitFor(() => expect(deleteMachine).toHaveBeenCalledWith("machine-1"));
+    // The mutation flips the cached machine to decommissioning; the card then
+    // shows the pending state (a re-render with the patched machine drives it).
+  });
+
+  it("shows 'Removing…' for a pending online machine and offers no remove action", () => {
+    renderWithProviders(
+      <MachineCard machine={{ ...availableMachine, decommissioning: true }} />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Removing…");
+    expect(screen.queryByRole("button", { name: "Remove machine" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revoke credential" })).not.toBeInTheDocument();
+  });
+
+  it("shows 'Waiting for this machine' for a pending offline machine", () => {
+    renderWithProviders(
+      <MachineCard
+        machine={{ ...availableMachine, online: false, decommissioning: true }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(/Waiting for this machine/);
   });
 
   it("revokes the credential only after confirmation", async () => {

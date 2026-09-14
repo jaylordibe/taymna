@@ -6,9 +6,11 @@
 //! to keep enforcing locally while disconnected and resync the moment the
 //! server is reachable again (docs/offline-expiry.md).
 //!
-//! Deliberately minimal: the only message the agent ever sends is a
-//! heartbeat, and the only messages it accepts are `session_state`,
-//! `heartbeat_ack` and `error` -- there is no generic command channel here.
+//! Deliberately minimal: the agent only ever sends a heartbeat and (once, on
+//! removal) a `decommission_ack`, and the only messages it accepts are
+//! `session_state`, `heartbeat_ack`, `decommission` and `error`. The
+//! `decommission` message is a bare lifecycle fact -- there is still no generic
+//! command channel and nothing the agent would execute; see docs/protocol.md.
 
 use std::time::Duration;
 
@@ -41,7 +43,38 @@ enum AgentToServer {
         /// what it *is*, and has nothing else to say.
         version: &'static str,
     },
+    /// Confirms that the agent has durably un-enrolled and stopped enforcing,
+    /// so the server may finalize removal. Sent only after the local
+    /// decommissioned state is on disk. Idempotent on the server, so it is
+    /// re-sent on every reconnect until the server finalizes (see
+    /// docs/enrollment.md "Decommissioning a machine").
+    #[serde(rename = "decommission_ack")]
+    DecommissionAck,
 }
+
+/// Commands from the run loop to this connection task. The run loop owns the
+/// durable state file, so it -- not this task -- decides *when* it is safe to
+/// acknowledge a decommission (only after persisting it). This channel is how
+/// that decision reaches the socket.
+#[derive(Debug)]
+pub enum ClientCommand {
+    /// Begin acknowledging decommission: ack now if connected, and on every
+    /// subsequent reconnect, until the server finalizes.
+    AckDecommission,
+}
+
+/// Custom WebSocket close code the server sends once it has finalized a
+/// decommission (deleted the machine). Mirrors the `4003` in
+/// RealtimeGateway/MachinesService; tells a decommissioned agent it can stop
+/// re-delivering its ack.
+const DECOMMISSION_FINALIZED_CODE: u16 = 4003;
+
+/// The server accepts the WebSocket upgrade and only *then* closes with this
+/// code if the machine credential is invalid (the gateway cannot 401 the
+/// upgrade itself). For a *managed* agent this is just a disconnect to retry
+/// (it keeps enforcing meanwhile); for a *decommissioned* agent it means the
+/// server already finalized and the row is gone, so it can stop acking.
+const INVALID_CREDENTIAL_CODE: u16 = 4001;
 
 /// Stamped from the release tag at build time (see the release workflow);
 /// a locally built binary reports the `0.0.0-dev` placeholder.
@@ -61,6 +94,12 @@ enum ServerToAgent {
         #[serde(rename = "serverTime")]
         server_time: DateTime<Utc>,
     },
+    /// An authenticated instruction to relinquish Taymna control. Carries no
+    /// executable payload -- it is a fact, like every other server message.
+    /// The server also sends a `serverTime`, but the agent has no use for it
+    /// here (decommission is not time-based), so it is simply ignored.
+    #[serde(rename = "decommission")]
+    Decommission,
     #[serde(rename = "error")]
     Error { code: String, message: String },
 }
@@ -74,19 +113,61 @@ pub enum ServerEvent {
         message_time: DateTime<Utc>,
     },
     ServerTime(DateTime<Utc>),
+    /// The server has instructed this machine to relinquish control. The run
+    /// loop must persist the decommissioned state *before* the ack is sent.
+    Decommission,
 }
 
-pub async fn run(credentials: Credentials, events_tx: mpsc::UnboundedSender<ServerEvent>) {
+/// How a single connection ended, so `run` can tell "the server finalized our
+/// decommission, stop" from "the link dropped, reconnect".
+enum Outcome {
+    /// The connection ended normally (or the stream closed); reconnect.
+    Disconnected,
+    /// The server closed with the decommission-finalized code: our identity is
+    /// gone, there is nothing left to do. Stop.
+    Finalized,
+}
+
+pub async fn run(
+    credentials: Credentials,
+    events_tx: mpsc::UnboundedSender<ServerEvent>,
+    mut cmd_rx: mpsc::UnboundedReceiver<ClientCommand>,
+) {
     let ws_url = to_ws_url(&credentials.server_url);
     let mut backoff = MIN_BACKOFF;
+    // Once true (the run loop has accepted a decommission and told us to ack),
+    // stays true: we ack on this and every future connect until the server
+    // finalizes. Retained across reconnects here rather than in the state file
+    // -- the *durable* record of decommission is the run loop's job; this is
+    // only "keep re-delivering the ack for this process's lifetime".
+    let mut ack_decommission = false;
 
     loop {
-        match connect_and_serve(&ws_url, &credentials, &events_tx).await {
-            Ok(()) => {
+        match connect_and_serve(
+            &ws_url,
+            &credentials,
+            &events_tx,
+            &mut cmd_rx,
+            &mut ack_decommission,
+        )
+        .await
+        {
+            Ok(Outcome::Finalized) => {
+                info!("decommission finalized by server; connection task stopping");
+                return;
+            }
+            Ok(Outcome::Disconnected) => {
                 // Clean close -- still reconnect, the server may just have restarted.
                 backoff = MIN_BACKOFF;
             }
             Err(err) => {
+                // Any connection/transport error -- DNS, TLS, timeout, a proxy
+                // 5xx, the server being down -- is always retried, for managed
+                // and decommissioned agents alike. A managed agent keeps
+                // enforcing from local state meanwhile, so breaking connectivity
+                // can never release a machine; a decommissioned agent simply has
+                // not delivered its ack yet. The only signals that stop the loop
+                // are the authenticated close codes handled in connect_and_serve.
                 warn!(%err, backoff_secs = backoff.as_secs(), "WebSocket connection lost, retrying");
             }
         }
@@ -99,7 +180,9 @@ async fn connect_and_serve(
     ws_url: &str,
     credentials: &Credentials,
     events_tx: &mpsc::UnboundedSender<ServerEvent>,
-) -> anyhow::Result<()> {
+    cmd_rx: &mut mpsc::UnboundedReceiver<ClientCommand>,
+    ack_decommission: &mut bool,
+) -> anyhow::Result<Outcome> {
     let mut request = ws_url.into_client_request()?;
     let auth_value = format!(
         "Machine {}.{}",
@@ -112,6 +195,17 @@ async fn connect_and_serve(
     let (stream, _response) = tokio_tungstenite::connect_async(request).await?;
     info!("connected to Taymna server");
     let (mut write, mut read) = stream.split();
+
+    // Pick up any ack command that arrived while we were disconnected, so the
+    // ack goes out on this connect rather than waiting for the next one.
+    while let Ok(cmd) = cmd_rx.try_recv() {
+        match cmd {
+            ClientCommand::AckDecommission => *ack_decommission = true,
+        }
+    }
+    if *ack_decommission {
+        send_decommission_ack(&mut write).await?;
+    }
 
     let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
     heartbeat_interval.tick().await; // first tick fires immediately; skip it, we greet below instead
@@ -135,6 +229,20 @@ async fn connect_and_serve(
                 };
                 write.send(Message::text(serde_json::to_string(&heartbeat)?)).await?;
             }
+            cmd = cmd_rx.recv() => {
+                match cmd {
+                    Some(ClientCommand::AckDecommission) => {
+                        // The run loop has durably recorded the decommission;
+                        // only now is it safe to tell the server. Keep acking
+                        // on future reconnects until the server finalizes.
+                        *ack_decommission = true;
+                        send_decommission_ack(&mut write).await?;
+                    }
+                    // The run loop dropped the command sender -- it is shutting
+                    // down, and so are we.
+                    None => return Ok(Outcome::Disconnected),
+                }
+            }
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -149,16 +257,45 @@ async fn connect_and_serve(
                         }
                     }
                     Some(Ok(Message::Close(frame))) => {
+                        let code = frame.as_ref().map(|f| u16::from(f.code));
+                        // Finalized: our decommission is complete, the row is
+                        // gone -- stop.
+                        if code == Some(DECOMMISSION_FINALIZED_CODE) {
+                            return Ok(Outcome::Finalized);
+                        }
+                        // A decommissioned agent whose credential is now rejected
+                        // means the server already finalized (we missed the 4003,
+                        // e.g. the ack's connection dropped and we reconnected):
+                        // stop re-delivering the ack. A *managed* agent seeing
+                        // 4001 falls through to reconnect and keeps enforcing --
+                        // a rejected credential never releases a managed machine.
+                        if *ack_decommission && code == Some(INVALID_CREDENTIAL_CODE) {
+                            return Ok(Outcome::Finalized);
+                        }
                         warn!(?frame, "server closed the connection");
-                        return Ok(());
+                        return Ok(Outcome::Disconnected);
                     }
                     Some(Ok(_)) => {} // ping/pong/binary: nothing to do
                     Some(Err(err)) => return Err(err.into()),
-                    None => return Ok(()),
+                    None => return Ok(Outcome::Disconnected),
                 }
             }
         }
     }
+}
+
+/// Sends a decommission acknowledgement. Generic over the sink so it does not
+/// have to name the split WebSocket write half's concrete type.
+async fn send_decommission_ack<S>(write: &mut S) -> anyhow::Result<()>
+where
+    S: futures_util::Sink<Message> + Unpin,
+    <S as futures_util::Sink<Message>>::Error: std::error::Error + Send + Sync + 'static,
+{
+    let ack = AgentToServer::DecommissionAck;
+    write
+        .send(Message::text(serde_json::to_string(&ack)?))
+        .await?;
+    Ok(())
 }
 
 fn handle_message(text: &str, events_tx: &mpsc::UnboundedSender<ServerEvent>) {
@@ -185,6 +322,7 @@ fn handle_message(text: &str, events_tx: &mpsc::UnboundedSender<ServerEvent>) {
             })
         }
         ServerToAgent::HeartbeatAck { server_time } => Some(ServerEvent::ServerTime(server_time)),
+        ServerToAgent::Decommission => Some(ServerEvent::Decommission),
         ServerToAgent::Error { code, message } => {
             warn!(code, message, "server reported an error");
             None
@@ -210,6 +348,22 @@ fn to_ws_url(server_url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_a_decommission_message_into_an_event() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handle_message(
+            r#"{"type":"decommission","serverTime":"2026-01-01T00:00:00Z"}"#,
+            &tx,
+        );
+        assert!(matches!(rx.try_recv(), Ok(ServerEvent::Decommission)));
+    }
+
+    #[test]
+    fn decommission_ack_serializes_to_the_expected_wire_shape() {
+        let json = serde_json::to_string(&AgentToServer::DecommissionAck).unwrap();
+        assert_eq!(json, r#"{"type":"decommission_ack"}"#);
+    }
 
     #[test]
     fn converts_https_to_wss() {

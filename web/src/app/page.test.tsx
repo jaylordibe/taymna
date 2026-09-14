@@ -63,6 +63,7 @@ describe("DashboardPage", () => {
         name: "PC-01",
         platform: "WINDOWS",
         online: true,
+        decommissioning: false,
         lastSeenAt: new Date().toISOString(),
         agentVersion: "0.2.0",
         activeSession: null,

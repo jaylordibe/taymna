@@ -15,6 +15,7 @@ type ServerToOperatorMessage =
       agentVersion: string | null;
     }
   | { type: "session_updated"; machineId: string; session: SessionState | null }
+  | { type: "machine_decommissioning"; machineId: string }
   | { type: "machine_removed"; machineId: string };
 
 const MIN_BACKOFF_MS = 1000;
@@ -77,6 +78,11 @@ export function useRealtime(token: string | null): void {
           if (message.type === "session_updated") {
             return current.map((m) =>
               m.id === message.machineId ? { ...m, activeSession: message.session } : m,
+            );
+          }
+          if (message.type === "machine_decommissioning") {
+            return current.map((m) =>
+              m.id === message.machineId ? { ...m, decommissioning: true } : m,
             );
           }
           if (message.type === "machine_removed") {

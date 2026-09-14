@@ -14,6 +14,12 @@ export interface Machine {
   name: string;
   platform: Platform;
   online: boolean;
+  /**
+   * True once removal has been requested and the machine is waiting for its
+   * agent to relinquish control and acknowledge. Shown as removing/waiting
+   * rather than managed; it disappears only when the agent acknowledges.
+   */
+  decommissioning: boolean;
   lastSeenAt: string | null;
   /** Version the agent last reported; null for one too old to report it. */
   agentVersion: string | null;
