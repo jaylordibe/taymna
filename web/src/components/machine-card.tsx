@@ -277,25 +277,35 @@ export function MachineCard({ machine }: { machine: Machine }) {
               </div>
             )}
           </div>
-        ) : (
+        ) : machine.online ? (
           <div className="mt-4 flex items-center justify-between gap-3">
             <span className="text-sm font-medium text-sage">Available</span>
             <StartSessionControl busy={busy} onStart={handleStart} />
           </div>
+        ) : (
+          // Offline and no session: the machine can't take a session until its
+          // agent reconnects, so don't present the green "Available"/"Start"
+          // affordance that implies it's ready.
+          <div className="mt-4">
+            <span className="text-sm font-medium text-slate">Offline</span>
+          </div>
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-xs">
-          {machine.decommissioning ? (
-            // Removal has been requested; the machine stays on screen, with its
-            // actions disabled, until the agent relinquishes control. It then
-            // disappears (a realtime machine_removed event). An offline machine
-            // waits here until its agent reconnects.
-            <span className="text-ink-soft" role="status">
+          {machine.decommissioning && (
+            // Removal has been requested; the machine stays on screen until the
+            // agent relinquishes control, then disappears (a realtime
+            // machine_removed event). The actions below stay available so a
+            // removal stuck on an agent that never reconnects can still be
+            // forced: revoking the credential turns the pending decommission
+            // into an immediate delete on the next Remove.
+            <span className="w-full text-ink-soft" role="status">
               {machine.online
                 ? "Removing…"
-                : "Waiting for this machine. Taymna will remove it once the agent reconnects."}
+                : "Waiting for this machine — Taymna removes it once the agent reconnects. To remove it now, revoke its credential, then remove."}
             </span>
-          ) : confirm === "revoke" ? (
+          )}
+          {confirm === "revoke" ? (
             <>
               <span className="text-ink-soft">
                 Revoke its credential? The agent disconnects and needs a fresh enrollment.

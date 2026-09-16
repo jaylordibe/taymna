@@ -84,6 +84,14 @@ describe("MachineCard", () => {
     await waitFor(() => expect(startSession).toHaveBeenCalledWith("machine-1", 60));
   });
 
+  it("shows Offline and no start control for an offline machine with no session", () => {
+    renderWithProviders(<MachineCard machine={{ ...availableMachine, online: false }} />);
+
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.queryByText("Available")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start session" })).not.toBeInTheDocument();
+  });
+
   it("shows the remaining time and extends the session by a preset amount", async () => {
     extendSession.mockResolvedValueOnce({
       id: "session-1",
@@ -168,13 +176,15 @@ describe("MachineCard", () => {
     // shows the pending state (a re-render with the patched machine drives it).
   });
 
-  it("shows 'Removing…' for a pending online machine and offers no remove action", () => {
+  it("shows 'Removing…' for a pending machine but still offers revoke and remove", () => {
     renderWithProviders(
       <MachineCard machine={{ ...availableMachine, decommissioning: true }} />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("Removing…");
-    expect(screen.queryByRole("button", { name: "Remove machine" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Revoke credential" })).not.toBeInTheDocument();
+    // The actions stay available so a removal stuck on an agent that never
+    // reconnects can be forced (revoke, then remove) from the dashboard.
+    expect(screen.getByRole("button", { name: "Remove machine" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke credential" })).toBeInTheDocument();
   });
 
   it("shows 'Waiting for this machine' for a pending offline machine", () => {
