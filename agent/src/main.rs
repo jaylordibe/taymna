@@ -285,7 +285,10 @@ async fn enroll(store: &Store, server: String, token: String) -> anyhow::Result<
 
     let parsed: EnrollResponse = response.json().await?;
 
-    let mut state = store.load()?;
+    // Recover from an unreadable state file here rather than failing: enrolling
+    // is exactly how an operator fixes a corrupt state.json (see
+    // Store::load_for_enroll), so it must not be blocked by one.
+    let mut state = store.load_for_enroll()?;
     state.credentials = Some(Credentials {
         server_url: server,
         machine_id: parsed.machine_id.clone(),

@@ -87,8 +87,52 @@ impl Store {
 
     pub fn load(&self) -> io::Result<AgentState> {
         match fs::read_to_string(&self.path) {
-            Ok(contents) => Ok(serde_json::from_str(&contents).unwrap_or_default()),
+            // A file that exists but does not parse must never be silently
+            // treated as a blank slate. `AgentState::default()` is an
+            // *unenrolled, still-managed, clock-reset* machine, so defaulting
+            // here would (1) drop the enrollment -- the agent forgets it is
+            // managed and exits "not enrolled yet", the exact hit-or-miss this
+            // fixes; (2) resurrect enforcement on a decommissioned machine by
+            // dropping the `decommissioned` flag; and (3) reset the
+            // anti-rollback high-water mark -- all with no trace. The enforcing
+            // agent must instead refuse to start. `enroll` is the one place
+            // allowed to overwrite an unreadable file (see `load_for_enroll`),
+            // because it establishes fresh trust deliberately.
+            Ok(contents) => serde_json::from_str(&contents).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "state file {} is corrupt and cannot be parsed: {err}. \
+                         Refusing to start from a blank state; re-enroll this \
+                         machine to rewrite it.",
+                        self.path.display()
+                    ),
+                )
+            }),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(AgentState::default()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Loads state for enrollment, which -- unlike the run path -- may safely
+    /// recover from an unreadable file. Enrollment rebuilds trust from scratch
+    /// (fresh credential, `decommissioned = false`, no session), so a corrupt
+    /// `state.json` is renamed aside (preserved for diagnosis, moved out of the
+    /// way) and enrollment proceeds from defaults rather than failing and
+    /// leaving the operator no way to recover. The only thing lost with the
+    /// unreadable file is the anti-rollback high-water mark -- unavoidable, as
+    /// it could not be read, and acceptable because the operator is
+    /// re-establishing this machine deliberately.
+    pub fn load_for_enroll(&self) -> io::Result<AgentState> {
+        match self.load() {
+            Ok(state) => Ok(state),
+            Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+                // Best-effort: if the rename fails, the fresh save that follows
+                // enrollment still overwrites the bad file, so recovery is
+                // never blocked on preserving the corrupt copy.
+                let _ = fs::rename(&self.path, self.path.with_extension("json.corrupt"));
+                Ok(AgentState::default())
+            }
             Err(err) => Err(err),
         }
     }
@@ -322,6 +366,34 @@ mod tests {
         let loaded = store.load().unwrap();
         assert!(loaded.credentials.is_none());
         assert!(loaded.session.is_none());
+    }
+
+    #[test]
+    fn a_corrupt_state_file_is_an_error_never_a_silent_blank_slate() {
+        // The crux of the fix: an existing-but-unparseable state.json must
+        // not load as a fresh, unenrolled, still-managed machine -- that
+        // silently drops the enrollment and any decommissioned flag.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.json"), "{ not valid json ]").unwrap();
+
+        let store = Store::new(Some(dir.path().to_path_buf())).unwrap();
+        let err = store.load().unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn enroll_recovers_from_a_corrupt_state_file_by_setting_it_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(&path, "not json at all").unwrap();
+
+        let store = Store::new(Some(dir.path().to_path_buf())).unwrap();
+        let recovered = store.load_for_enroll().unwrap();
+        assert!(recovered.credentials.is_none());
+        // The unreadable file is preserved for diagnosis...
+        assert!(dir.path().join("state.json.corrupt").exists());
+        // ...and moved out of the way so a fresh enrollment can be written.
+        assert!(!path.exists());
     }
 
     #[test]
