@@ -1,4 +1,4 @@
-import { getStoredToken } from "./auth-storage";
+import { clearStoredToken, getStoredToken } from "./auth-storage";
 import type { Machine, Operator, Platform, SessionState, UsageReport } from "./types";
 
 /**
@@ -34,6 +34,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!res.ok) {
+    // A 401 on a request we authenticated means the token is expired or
+    // revoked. Drop it so auth-context's store subscription fires, `token`
+    // flips to null, and the pages redirect to /login -- otherwise the dead
+    // token lingers and the operator is stuck on a signed-in shell that can't
+    // load anything. Guarded on `token` so a login-failure 401 (no token
+    // sent) isn't misread as an expired session.
+    if (res.status === 401 && token) clearStoredToken();
     const body = await res.json().catch(() => null);
     const message = Array.isArray(body?.message)
       ? body.message.join(", ")
