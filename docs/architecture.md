@@ -62,7 +62,7 @@ taymna/
 ├── docs/         this directory
 ├── docker-compose.yml
 ├── .env.example
-└── LICENSE       Apache-2.0
+└── LICENSE       MIT
 ```
 
 No shared `packages/` workspace: the handful of types both `api/` and `web/`

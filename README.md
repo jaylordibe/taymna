@@ -1,27 +1,30 @@
-<h1 align="center">Taymna</h1>
+<div align="center">
 
-<p align="center">
-  <strong>Give a computer time. When the time is up, make it unavailable.</strong><br>
-  Open-source, self-hosted timed computer control — a dashboard for you, a tiny agent for each machine.
-</p>
+# Taymna
 
-<p align="center">
-  <a href="https://github.com/jaylordibe/taymna/actions/workflows/api-web.yml"><img alt="api & web" src="https://github.com/jaylordibe/taymna/actions/workflows/api-web.yml/badge.svg"></a>
-  <a href="https://github.com/jaylordibe/taymna/actions/workflows/agent.yml"><img alt="agent" src="https://github.com/jaylordibe/taymna/actions/workflows/agent.yml/badge.svg"></a>
-  <a href="https://github.com/jaylordibe/taymna/actions/workflows/install-scripts.yml"><img alt="install scripts" src="https://github.com/jaylordibe/taymna/actions/workflows/install-scripts.yml/badge.svg"></a>
-  <a href="https://github.com/jaylordibe/taymna/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/jaylordibe/taymna?label=release"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-</p>
+## Give a computer time. When the time is up, make it unavailable.
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#platform-support">Platform support</a> ·
-  <a href="#documentation">Docs</a> ·
-  <a href="#development">Development</a>
-</p>
+Open-source, self-hosted timed computer control —<br>
+a dashboard for you, a tiny agent for each machine.
+
+[![api & web](https://img.shields.io/github/actions/workflow/status/jaylordibe/taymna/api-web.yml?branch=main&label=api%20%26%20web&style=flat-square)](https://github.com/jaylordibe/taymna/actions/workflows/api-web.yml)
+[![agent](https://img.shields.io/github/actions/workflow/status/jaylordibe/taymna/agent.yml?branch=main&label=agent&style=flat-square)](https://github.com/jaylordibe/taymna/actions/workflows/agent.yml)
+[![install scripts](https://img.shields.io/github/actions/workflow/status/jaylordibe/taymna/install-scripts.yml?branch=main&label=install%20scripts&style=flat-square)](https://github.com/jaylordibe/taymna/actions/workflows/install-scripts.yml)
+[![Release](https://img.shields.io/github/v/release/jaylordibe/taymna?label=release&style=flat-square&color=57606a)](https://github.com/jaylordibe/taymna/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-57606a?style=flat-square)](LICENSE)
+
+Windows · Linux · macOS
+
+**[Why&nbsp;Taymna](#why-taymna)** · **[Quick&nbsp;start](#quick-start)** ·
+**[How&nbsp;it&nbsp;works](#how-it-works)** · **[Platform&nbsp;support](#platform-support)** ·
+**[Security](#security-model-in-short)** · **[Docs](#documentation)** ·
+**[Development](#development)**
+
+</div>
 
 ---
+
+## Why Taymna
 
 *Taymna* comes from **"time na"** — Filipino/Cebuano for *"it's time"* / *"time's up."*
 
@@ -31,7 +34,11 @@ browser you start a session — 30 minutes, 2 hours, whatever — and the
 machine is usable until it runs out. No session, no access: the screen is
 locked and stays locked.
 
-## Highlights
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="The Taymna dashboard on a phone: three Windows machines, two with running sessions and live countdowns" width="360">
+</p>
+
+### Highlights
 
 - **One dashboard, from anywhere** — an installable PWA (phone home screen,
   full-screen) with live countdowns pushed over WebSockets; no polling.
@@ -52,16 +59,13 @@ locked and stays locked.
   no snooze.
 - **One-command install** — `irm … | iex` on Windows, `curl … | sudo bash`
   on Linux/macOS: downloads, registers the service, enrolls, starts, and
-  verifies the agent connected. Re-running repairs a broken install.
+  verifies the agent connected. Re-running upgrades the agent in place and
+  keeps its enrollment.
 - **Nothing to port-forward on controlled machines** — agents dial *out*
   over WSS with a per-machine credential; the server is the only thing that
   needs to be reachable.
 - **Small on purpose** — one domain concept (*Machine → timed Session*),
   three services, Docker Compose. No Redis, no queues, no plugin system.
-
-<p align="center">
-  <img src="docs/images/dashboard.png" alt="The Taymna dashboard on a phone: three Windows machines, two with running sessions and live countdowns" width="360">
-</p>
 
 ## Quick start
 
@@ -95,26 +99,39 @@ curl -fsSL https://raw.githubusercontent.com/jaylordibe/taymna/main/install/inst
 start a session, becomes usable the moment you do, and locks again when
 the time runs out.
 
-Putting it on the internet with TLS — including a VPS that already hosts
-other apps — is covered step by step in
-[docs/deploy-ubuntu-vps.md](docs/deploy-ubuntu-vps.md).
+> [!TIP]
+> Putting it on the internet with TLS — including a VPS that already hosts
+> other apps — is covered step by step in
+> [docs/deploy-ubuntu-vps.md](docs/deploy-ubuntu-vps.md). The environment
+> variables, upgrades and backups are covered in [docs/self-hosting.md](docs/self-hosting.md).
 
 ## How it works
 
-```
-                    Phone / laptop (browser, installable PWA)
-                                      │
-                               HTTPS + WSS (JWT)
-                                      ▼
-        ┌──────────────────────┐            ┌──────────────────────────┐
-        │  Web  ·  Next.js     │ ────────── │  API  ·  NestJS + Prisma │ ──── Postgres
-        └──────────────────────┘            └────────────┬─────────────┘
-                                                         ▲
-                             WSS, outbound only, per-machine credential
-                        ┌────────────────┬───────────────┴┬────────────────┐
-                        │ agent (Windows)│ agent (Linux)  │ agent (macOS)  │
-                        │ Windows Service│ systemd        │ launchd        │
-                        └────────────────┴────────────────┴────────────────┘
+```mermaid
+flowchart TB
+    operator(["Phone or laptop<br/>browser, installable PWA"])
+
+    subgraph server["Your server: Docker Compose"]
+        direction LR
+        web["Web<br/>Next.js"]
+        api["API<br/>NestJS + Prisma"]
+        pg[("PostgreSQL")]
+        api --> pg
+    end
+
+    operator -- "loads the dashboard" --> web
+    operator -- "HTTPS + WSS, JWT" --> api
+
+    subgraph machines["Controlled machines"]
+        direction LR
+        win["agent<br/>Windows Service"]
+        linux["agent<br/>systemd"]
+        mac["agent<br/>launchd"]
+    end
+
+    win -- "WSS, outbound only" --> api
+    linux -- "WSS, outbound only" --> api
+    mac -- "WSS, outbound only" --> api
 ```
 
 | Piece | Stack | Role |
@@ -128,7 +145,8 @@ The agent never receives commands — only *facts* about the current session
 machine should be usable, and — from the same deadline and the same
 clock — when to warn the person using it that time is running out. That is
 why a dead network or a stopped server can't extend anyone's time, and why
-the warnings still arrive when the server is unreachable. Details:
+the warnings still arrive when the server is unreachable. Each agent
+connects with its own per-machine credential. Details:
 [docs/architecture.md](docs/architecture.md), [docs/protocol.md](docs/protocol.md),
 [docs/offline-expiry.md](docs/offline-expiry.md),
 [docs/expiry-warnings.md](docs/expiry-warnings.md).
@@ -138,7 +156,7 @@ the warnings still arrive when the server is unreachable. Details:
 | OS | Runs as | Lock mechanism | Status |
 |---|---|---|---|
 | **Windows** (x86-64) | Windows Service (LocalSystem) | Locks the console session via `WTSQueryUserToken` + `CreateProcessAsUserW` | ✅ **Verified on real hardware** (Windows 11): locks with no session, re-locks in ~2 s, unlocks on start, locks at expiry |
-| **Linux** (x86-64, any distro) | systemd | `loginctl lock-sessions` (systemd-logind) | 🟡 Built as a static binary; decision logic verified live, the lock call itself not yet run against a real desktop |
+| **Linux** (x86-64, systemd) | systemd | `loginctl lock-sessions` (systemd-logind) | 🟡 Built as a static binary; decision logic verified live, the lock call itself not yet run against a real desktop |
 | **macOS** (Apple Silicon) | launchd | Simulates the system lock shortcut (needs one-time Accessibility permission) | 🟡 Builds and is reviewed; not yet run on a real Mac |
 
 The honest limitation shared by all three: a screen lock can't stop someone
@@ -160,14 +178,15 @@ guaranteed per OS: [docs/enforcement.md](docs/enforcement.md).
   stopped enforcing, so removal can never strand a locked machine. Breaking
   connectivity never releases enforcement. See
   [Enrollment › Decommissioning](docs/enrollment.md#decommissioning-a-machine).
-- Input validation on every route, rate limiting on auth and enrollment,
-  CORS locked to the dashboard's origin, secrets redacted from logs.
+- Input validation on every route, rate limiting on every route (tighter on
+  sign-in and enrollment), CORS locked to the dashboard's origin, secrets
+  redacted from logs.
 
 Full write-up and known limitations: [docs/security.md](docs/security.md).
 
 ## Documentation
 
-| | |
+| Guide | What it covers |
 |---|---|
 | [Self-hosting](docs/self-hosting.md) | Environment variables, first start, upgrading, backups |
 | [Deploy on an Ubuntu VPS](docs/deploy-ubuntu-vps.md) | From a blank server to HTTPS — Caddy, nginx, or nginx-in-Docker; shared servers |
@@ -204,7 +223,8 @@ cd agent && cargo run -- enroll --server http://localhost:3000 --token <token> &
 | `web/` | `yarn lint` | `yarn typecheck` | `yarn test` | `yarn build` |
 | `agent/` | `cargo fmt --check` · `cargo clippy --all-targets -- -D warnings` | — | `cargo test` | `cargo build` |
 
-CI runs all of the above on every push; pushing a `v*.*.*` tag builds the
+CI runs all of the above on every push to `main` and on every pull request
+(the agent on Windows, Linux and macOS). Pushing a `v*.*.*` tag builds the
 agent for all three platforms and attaches the binaries to a
 [GitHub Release](https://github.com/jaylordibe/taymna/releases).
 
@@ -217,6 +237,12 @@ session state machine, or platform enforcement, read
 and [docs/enforcement.md](docs/enforcement.md) first — they describe
 invariants the tests depend on, not style preferences.
 
-## License
+---
 
-[Apache License 2.0](LICENSE)
+<div align="center">
+
+**Give a computer time. When the time is up, make it unavailable.**
+
+MIT licensed. See [LICENSE](LICENSE).
+
+</div>

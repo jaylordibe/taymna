@@ -8,7 +8,7 @@ name = "taymna-agent"
 version = "0.0.0-dev"
 edition = "2021"
 description = "Taymna machine agent: enrolls a computer, holds a persistent connection to the Taymna server, and enforces session expiry locally."
-license = "Apache-2.0"
+license = "MIT"
 
 [[bin]]
 name = "taymna-agent"
